@@ -1,0 +1,125 @@
+version: "3.8"
+
+services:
+  traefik:
+    image: traefik:v3.0
+    container_name: parcelstats-traefik
+    restart: unless-stopped
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.file.directory=/etc/traefik/dynamic"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--entrypoints.web.http.redirections.entryPoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entryPoint.scheme=https"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik:/etc/traefik/dynamic:ro
+      - traefik-certs:/etc/traefik/certs
+    networks:
+      - parcelstats
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: parcelstats-frontend
+    restart: unless-stopped
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.frontend.rule=Host(`${DOMAIN:-localhost}`)"
+      - "traefik.http.routers.frontend.entrypoints=websecure"
+      - "traefik.http.routers.frontend.tls=true"
+      - "traefik.http.services.frontend.loadbalancer.server.port=3000"
+    environment:
+      - DATABASE_URL=postgresql://parcelstats:${DB_PASSWORD:-parcelstats}@postgres:5432/parcelstats
+      - REDIS_URL=redis://redis:6379
+      - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost}
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-change-me-in-production}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - ML_SERVICE_URL=http://ml-service:8000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - parcelstats
+
+  ml-service:
+    build:
+      context: ./ml-service
+      dockerfile: Dockerfile
+    container_name: parcelstats-ml
+    restart: unless-stopped
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.ml.rule=Host(`ml.${DOMAIN:-localhost}`)"
+      - "traefik.http.routers.ml.entrypoints=websecure"
+      - "traefik.http.routers.ml.tls=true"
+      - "traefik.http.services.ml.loadbalancer.server.port=8000"
+    environment:
+      - DATABASE_URL=postgresql://parcelstats:${DB_PASSWORD:-parcelstats}@postgres:5432/parcelstats
+      - REDIS_URL=redis://redis:6379
+      - SCRAPE_HEADLESS=true
+      - MODEL_RETRAIN_SCHEDULE=${MODEL_RETRAIN_SCHEDULE:-0 3 * * 0}
+    volumes:
+      - ml-models:/app/models
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - parcelstats
+
+  postgres:
+    image: timescale/timescaledb:latest-pg16
+    container_name: parcelstats-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=parcelstats
+      - POSTGRES_USER=parcelstats
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-parcelstats}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U parcelstats"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - parcelstats
+
+  redis:
+    image: redis:7-alpine
+    container_name: parcelstats-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - parcelstats
+
+volumes:
+  postgres-data:
+  redis-data:
+  ml-models:
+  traefik-certs:
+
+networks:
+  parcelstats:
+    driver: bridge

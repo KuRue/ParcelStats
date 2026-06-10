@@ -1,0 +1,71 @@
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Optional
+
+
+@dataclass
+class ScrapedEvent:
+    status: str
+    location_name: Optional[str] = None
+    location_lat: Optional[float] = None
+    location_lng: Optional[float] = None
+    description: Optional[str] = None
+    event_time: Optional[datetime] = None
+    raw_data: Optional[dict] = None
+
+
+@dataclass
+class ScrapedShipment:
+    tracking_number: str
+    carrier_slug: str
+    status: str
+    service_type: Optional[str] = None
+    origin_name: Optional[str] = None
+    origin_lat: Optional[float] = None
+    origin_lng: Optional[float] = None
+    dest_name: Optional[str] = None
+    dest_lat: Optional[float] = None
+    dest_lng: Optional[float] = None
+    weight_kg: Optional[float] = None
+    shipped_at: Optional[datetime] = None
+    delivered_at: Optional[datetime] = None
+    estimated_delivery: Optional[datetime] = None
+    events: list[ScrapedEvent] = None
+
+    def __post_init__(self):
+        if self.events is None:
+            self.events = []
+
+
+class BaseCarrierScraper(ABC):
+    slug: str = ""
+    name: str = ""
+
+    @abstractmethod
+    async def track(self, tracking_number: str) -> ScrapedShipment:
+        pass
+
+    def normalize_status(self, raw_status: str) -> str:
+        s = raw_status.lower().strip()
+        if any(w in s for w in ["delivered", "delivred", "geliefert"]):
+            if any(w in s for w in ["fail", "exception", "attempt"]):
+                return "delivery_exception"
+            return "delivered"
+        if any(w in s for w in ["out for delivery", "on van", "with driver", "out for del"]):
+            return "out_for_delivery"
+        if any(w in s for w in ["in transit", "in progress", "en route", "on the way", "transiting"]):
+            return "in_transit"
+        if any(w in s for w in ["custom", "cleared", "customs"]):
+            return "customs"
+        if any(w in s for w in ["exception", "delayed", "returned", "damaged", "lost"]):
+            return "exception"
+        if any(w in s for w in ["arrived", "at facility", "at hub", "received at"]):
+            return "arrived_at_facility"
+        if any(w in s for w in ["departed", "left facility", "shipped from"]):
+            return "departed_facility"
+        if any(w in s for w in ["label", "pre-ship", "information received", "electronic"]):
+            return "label_created"
+        if any(w in s for w in ["pending", "picked up", "collected", "acceptance"]):
+            return "pending"
+        return raw_status

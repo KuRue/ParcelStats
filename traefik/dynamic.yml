@@ -1,0 +1,8 @@
+http:
+  routers:
+    dashboard:
+      rule: "Host(`${DOMAIN:-localhost}`) && (PathPrefix(`/api`) || PathPrefix(`/auth`))"
+      service: frontend
+      entryPoints:
+        - websecure
+      tls: true

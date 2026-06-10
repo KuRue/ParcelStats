@@ -1,0 +1,161 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Orbitron:wght@400;500;600;700;800;900&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-bg: #0a0e17;
+  --color-surface: #111827;
+  --color-card: #1a1f2e;
+  --color-border: #2a3040;
+  --color-text: #e0e6f0;
+  --color-muted: #7a8599;
+  --color-cyan: #00f0ff;
+  --color-green: #39ff14;
+  --color-purple: #bf00ff;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+}
+
+body {
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+@layer components {
+  .cyber-card {
+    @apply bg-cyber-card border border-cyber-border rounded-lg p-4 relative overflow-hidden;
+  }
+
+  .cyber-card::before {
+    content: '';
+    @apply absolute inset-0 bg-grid-pattern bg-grid opacity-50 pointer-events-none;
+  }
+
+  .cyber-card-glow {
+    @apply cyber-card border-cyber-cyan/30 shadow-cyber-glow;
+  }
+
+  .cyber-input {
+    @apply bg-cyber-surface border border-cyber-border rounded px-3 py-2 text-cyber-text
+           focus:border-cyber-cyan focus:outline-none focus:ring-1 focus:ring-cyber-cyan/50
+           transition-all duration-200 font-mono;
+  }
+
+  .cyber-btn {
+    @apply bg-cyber-cyan/10 border border-cyber-cyan/50 text-cyber-cyan px-4 py-2 rounded
+           hover:bg-cyber-cyan/20 hover:border-cyber-cyan hover:shadow-cyber-glow
+           transition-all duration-200 font-mono text-sm uppercase tracking-wider;
+  }
+
+  .cyber-btn-primary {
+    @apply bg-cyber-cyan text-cyber-bg border border-cyber-cyan
+           hover:bg-cyber-cyan/90 hover:shadow-cyber-glow
+           font-bold;
+  }
+
+  .cyber-btn-danger {
+    @apply bg-cyber-red/10 border border-cyber-red/50 text-cyber-red
+           hover:bg-cyber-red/20 hover:border-cyber-red;
+  }
+
+  .cyber-badge {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-mono uppercase tracking-wider border;
+  }
+
+  .cyber-badge-success {
+    @apply cyber-badge bg-cyber-green/10 border-cyber-green/30 text-cyber-green;
+  }
+
+  .cyber-badge-warning {
+    @apply cyber-badge bg-cyber-yellow/10 border-cyber-yellow/30 text-cyber-yellow;
+  }
+
+  .cyber-badge-danger {
+    @apply cyber-badge bg-cyber-red/10 border-cyber-red/30 text-cyber-red;
+  }
+
+  .cyber-badge-info {
+    @apply cyber-badge bg-cyber-cyan/10 border-cyber-cyan/30 text-cyber-cyan;
+  }
+
+  .cyber-badge-purple {
+    @apply cyber-badge bg-cyber-purple/10 border-cyber-purple/30 text-cyber-purple;
+  }
+
+  .cyber-timeline {
+    @apply relative;
+  }
+
+  .cyber-timeline::before {
+    content: '';
+    @apply absolute left-[11px] top-0 bottom-0 w-px bg-cyber-border;
+  }
+
+  .cyber-timeline-dot {
+    @apply w-6 h-6 rounded-full border-2 border-cyber-cyan bg-cyber-bg flex items-center justify-center
+           relative z-10;
+  }
+
+  .cyber-timeline-dot-active {
+    @apply cyber-timeline-dot border-cyber-green bg-cyber-green/20 shadow-cyber-glow-green;
+  }
+
+  .glitch-text {
+    @apply relative;
+  }
+
+  .terminal-header {
+    @apply flex items-center gap-2 px-3 py-2 bg-cyber-surface border-b border-cyber-border rounded-t-lg;
+  }
+
+  .terminal-dot {
+    @apply w-3 h-3 rounded-full;
+  }
+
+  .stat-value {
+    @apply text-2xl font-display font-bold text-cyber-cyan;
+  }
+
+  .stat-label {
+    @apply text-xs text-cyber-muted uppercase tracking-widest;
+  }
+
+  .confidence-bar {
+    @apply h-2 rounded-full bg-cyber-surface overflow-hidden relative;
+  }
+
+  .confidence-fill {
+    @apply h-full rounded-full transition-all duration-700 ease-out;
+  }
+}
+
+@layer utilities {
+  .text-shadow-cyber {
+    text-shadow: 0 0 10px rgba(0, 240, 255, 0.5), 0 0 40px rgba(0, 240, 255, 0.2);
+  }
+
+  .text-shadow-green {
+    text-shadow: 0 0 10px rgba(57, 255, 20, 0.5), 0 0 40px rgba(57, 255, 20, 0.2);
+  }
+
+  .animate-flicker {
+    animation: flicker 0.15s infinite;
+  }
+
+  @keyframes flicker {
+    0% { opacity: 0.97; }
+    50% { opacity: 1; }
+    100% { opacity: 0.98; }
+  }
+}
+
+.leaflet-container {
+  background: var(--color-bg) !important;
+  border-radius: 0.5rem;
+}
