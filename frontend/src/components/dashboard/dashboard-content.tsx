@@ -37,7 +37,17 @@ function statusRank(status: string): number {
 
 function isIssueStatus(status: string): boolean {
   const s = status.toLowerCase();
-  return s.includes("exception") || s.includes("fail") || s.includes("error");
+  return (
+    s.includes("exception") ||
+    s.includes("fail") ||
+    s.includes("error") ||
+    s.includes("auth") ||
+    s.includes("required") ||
+    s.includes("not_found") ||
+    s.includes("not found") ||
+    s.includes("blocked") ||
+    s.includes("unavailable")
+  );
 }
 
 function isDeliveredStatus(status: string): boolean {

@@ -97,7 +97,7 @@ class ModelTrainer:
 
             cats = {}
             for col in cat_cols:
-                cats[col] = {v: k for k, v in dict(enumerate(pd.Categorical(df[col[4:]] if col.startswith("orig") or col.startswith("dest") else df[col]).categories)).items()}
+                cats[col] = {v: k for k, v in dict(enumerate(pd.Categorical(df[col]).categories)).items()}
 
             joblib.dump({"features": features, "categories": cats}, os.path.join(artifact_path, "metadata.pkl"))
 

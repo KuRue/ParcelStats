@@ -28,13 +28,33 @@ interface GlobalMapProps {
 }
 
 function getStatusColor(status: string): string {
-  const s = status.toLowerCase();
+  const s = status.toLowerCase().replace(/[_-]+/g, " ");
   if (s.includes("deliver") && !s.includes("fail")) return "#39ff14";
   if (s.includes("out for delivery")) return "#bf00ff";
   if (s.includes("transit")) return "#00f0ff";
   if (s.includes("custom")) return "#ffdd00";
-  if (s.includes("exception")) return "#ff003c";
+  if (s.includes("exception") || s.includes("fail") || s.includes("error")) return "#ff003c";
+  if (isIssueStatus(status)) return "#ffdd00";
   return "#7a8599";
+}
+
+function isIssueStatus(status: string): boolean {
+  const s = status.toLowerCase().replace(/[_-]+/g, " ");
+  return (
+    s.includes("exception") ||
+    s.includes("fail") ||
+    s.includes("error") ||
+    s.includes("auth") ||
+    s.includes("required") ||
+    s.includes("not found") ||
+    s.includes("blocked") ||
+    s.includes("unavailable")
+  );
+}
+
+function isDeliveredStatus(status: string): boolean {
+  const s = status.toLowerCase();
+  return s.includes("deliver") && !isIssueStatus(status);
 }
 
 function createShipmentMarker(color: string, pulse: boolean = false) {
@@ -125,8 +145,8 @@ export function GlobalMap({ shipments, onSelect, selectedId }: GlobalMapProps) {
       const hasDest = s.destLat && s.destLng;
       const hasLast = s.lastLat && s.lastLng;
       const isActive =
-        !s.status.toLowerCase().includes("deliver") &&
-        !s.status.toLowerCase().includes("exception");
+        !isDeliveredStatus(s.status) &&
+        !isIssueStatus(s.status);
 
       if (hasOrigin) {
         const origin = L.marker([parseFloat(s.originLat!), parseFloat(s.originLng!)], {
@@ -216,13 +236,13 @@ export function GlobalMap({ shipments, onSelect, selectedId }: GlobalMapProps) {
         <div className="flex items-center gap-1 bg-cyber-bg/80 backdrop-blur-sm border border-cyber-border rounded px-2 py-1">
           <div className="w-2 h-2 rounded-full bg-cyber-cyan animate-pulse" />
           <span className="text-[9px] text-cyber-muted font-mono">
-            {shipments.filter((s) => !s.status.toLowerCase().includes("deliver")).length} active
+            {shipments.filter((s) => !isDeliveredStatus(s.status) && !isIssueStatus(s.status)).length} active
           </span>
         </div>
         <div className="flex items-center gap-1 bg-cyber-bg/80 backdrop-blur-sm border border-cyber-border rounded px-2 py-1">
           <div className="w-2 h-2 rounded-full bg-cyber-green" />
           <span className="text-[9px] text-cyber-muted font-mono">
-            {shipments.filter((s) => s.status.toLowerCase().includes("deliver")).length} delivered
+            {shipments.filter((s) => isDeliveredStatus(s.status)).length} delivered
           </span>
         </div>
       </div>

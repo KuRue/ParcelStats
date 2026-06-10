@@ -244,3 +244,170 @@ def test_usps_parse_public_json():
     assert shipment.estimated_delivery is not None
     assert len(shipment.events) == 2
     assert shipment.events[0].location_name == "JACKSONVILLE, FL"
+
+
+@pytest.mark.asyncio
+async def test_usps_requires_credentials(monkeypatch):
+    from services.config import settings
+    from services.scraper.usps import USPSPScraper
+
+    monkeypatch.setattr(settings, "usps_web_tools_user_id", None)
+    shipment = await USPSPScraper().track("9400136106196445294475")
+
+    assert shipment.status == "carrier_setup_required"
+    assert shipment.events[0].status == "carrier_setup_required"
+    assert "USPS_WEB_TOOLS_USER_ID" in shipment.events[0].description
+
+
+@pytest.mark.asyncio
+async def test_ups_requires_credentials(monkeypatch):
+    from services.config import settings
+    from services.scraper.ups import UPSScraper
+
+    monkeypatch.setattr(settings, "ups_client_id", None)
+    monkeypatch.setattr(settings, "ups_client_secret", None)
+    shipment = await UPSScraper().track("1ZB36H830306448836")
+
+    assert shipment.status == "carrier_setup_required"
+    assert shipment.events[0].status == "carrier_setup_required"
+    assert "UPS_CLIENT_ID" in shipment.events[0].description
+
+
+def test_ups_parse_track_api_response():
+    from services.scraper.ups import UPSScraper
+
+    scraper = UPSScraper()
+    shipment = scraper._shipment_from_api_response(
+        "1ZB36H830306448836",
+        {
+            "trackResponse": {
+                "shipment": [
+                    {
+                        "package": [
+                            {
+                                "currentStatus": {
+                                    "description": "In Transit",
+                                },
+                                "service": {
+                                    "description": "UPS Ground",
+                                },
+                                "deliveryDate": [
+                                    {"type": "SDD", "date": "20260612"},
+                                ],
+                                "deliveryTime": [
+                                    {"type": "EOD", "endTime": "210000"},
+                                ],
+                                "activity": [
+                                    {
+                                        "date": "20260610",
+                                        "time": "071356",
+                                        "location": {
+                                            "address": {
+                                                "city": "JACKSONVILLE",
+                                                "stateProvince": "FL",
+                                                "postalCode": "32202",
+                                                "countryCode": "US",
+                                            }
+                                        },
+                                        "status": {
+                                            "description": "Departed from Facility",
+                                        },
+                                    }
+                                ],
+                            }
+                        ]
+                    }
+                ]
+            }
+        },
+    )
+
+    assert shipment.status == "in_transit"
+    assert shipment.service_type == "UPS Ground"
+    assert shipment.estimated_delivery is not None
+    assert len(shipment.events) == 1
+    assert shipment.events[0].status == "departed_facility"
+    assert shipment.events[0].location_name == "JACKSONVILLE, FL, 32202, US"
+
+
+@pytest.mark.asyncio
+async def test_fedex_requires_credentials(monkeypatch):
+    from services.config import settings
+    from services.scraper.fedex import FedExScraper
+
+    monkeypatch.setattr(settings, "fedex_client_id", None)
+    monkeypatch.setattr(settings, "fedex_client_secret", None)
+    shipment = await FedExScraper().track("880648105185")
+
+    assert shipment.status == "carrier_setup_required"
+    assert shipment.events[0].status == "carrier_setup_required"
+    assert "FEDEX_CLIENT_ID" in shipment.events[0].description
+
+
+def test_fedex_parse_track_api_response():
+    from services.scraper.fedex import FedExScraper
+
+    scraper = FedExScraper()
+    shipment = scraper._shipment_from_api_response(
+        "880648105185",
+        {
+            "output": {
+                "completeTrackResults": [
+                    {
+                        "trackingNumber": "880648105185",
+                        "trackResults": [
+                            {
+                                "latestStatusDetail": {
+                                    "statusByLocale": "In transit",
+                                },
+                                "serviceDetail": {
+                                    "description": "FedEx Ground",
+                                },
+                                "estimatedDeliveryTimeWindow": {
+                                    "window": {
+                                        "begins": "2026-06-12T08:00:00-04:00",
+                                        "ends": "2026-06-12T20:00:00-04:00",
+                                    }
+                                },
+                                "shipperInformation": {
+                                    "address": {
+                                        "city": "TAMPA",
+                                        "stateOrProvinceCode": "FL",
+                                        "countryCode": "US",
+                                    }
+                                },
+                                "recipientInformation": {
+                                    "address": {
+                                        "city": "JACKSONVILLE",
+                                        "stateOrProvinceCode": "FL",
+                                        "countryCode": "US",
+                                    }
+                                },
+                                "scanEvents": [
+                                    {
+                                        "date": "2026-06-10T13:15:00-04:00",
+                                        "eventDescription": "Arrived at FedEx location",
+                                        "scanLocation": {
+                                            "city": "JACKSONVILLE",
+                                            "stateOrProvinceCode": "FL",
+                                            "postalCode": "32202",
+                                            "countryCode": "US",
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ]
+            }
+        },
+    )
+
+    assert shipment.status == "in_transit"
+    assert shipment.service_type == "FedEx Ground"
+    assert shipment.estimated_delivery is not None
+    assert shipment.origin_name == "TAMPA, FL, US"
+    assert shipment.dest_name == "JACKSONVILLE, FL, US"
+    assert len(shipment.events) == 1
+    assert shipment.events[0].status == "arrived_at_facility"
+    assert shipment.events[0].location_name == "JACKSONVILLE, FL, 32202, US"

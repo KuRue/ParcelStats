@@ -72,6 +72,7 @@ CREATE TABLE shipments (
     shipped_at TIMESTAMPTZ,
     delivered_at TIMESTAMPTZ,
     estimated_delivery TIMESTAMPTZ,
+    source TEXT NOT NULL DEFAULT 'user',
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE(tracking_number, carrier_id)

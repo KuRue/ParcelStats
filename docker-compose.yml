@@ -37,6 +37,15 @@ services:
       - SCRAPE_HEADLESS=true
       - MODEL_RETRAIN_SCHEDULE=${MODEL_RETRAIN_SCHEDULE:-0 3 * * 0}
       - USPS_WEB_TOOLS_USER_ID=${USPS_WEB_TOOLS_USER_ID:-}
+      - UPS_CLIENT_ID=${UPS_CLIENT_ID:-}
+      - UPS_CLIENT_SECRET=${UPS_CLIENT_SECRET:-}
+      - UPS_MERCHANT_ID=${UPS_MERCHANT_ID:-}
+      - UPS_BASE_URL=${UPS_BASE_URL:-https://onlinetools.ups.com}
+      - UPS_TRANSACTION_SRC=${UPS_TRANSACTION_SRC:-ParcelStats}
+      - FEDEX_CLIENT_ID=${FEDEX_CLIENT_ID:-}
+      - FEDEX_CLIENT_SECRET=${FEDEX_CLIENT_SECRET:-}
+      - FEDEX_BASE_URL=${FEDEX_BASE_URL:-https://apis.fedex.com}
+      - FEDEX_LOCALE=${FEDEX_LOCALE:-en_US}
     volumes:
       - ml-models:/app/models
     depends_on:

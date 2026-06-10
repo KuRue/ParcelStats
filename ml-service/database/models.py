@@ -46,6 +46,7 @@ class Shipment(Base):
     shipped_at = Column(DateTime)
     delivered_at = Column(DateTime)
     estimated_delivery = Column(DateTime)
+    source = Column(String, default="user")
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     carrier = relationship("Carrier")

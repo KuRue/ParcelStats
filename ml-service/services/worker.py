@@ -226,6 +226,9 @@ class ScrapeWorker:
                 self._processed += 1
                 logger.info(f"Completed {carrier_slug}:{tracking_number}")
 
+                if result.status == "delivered":
+                    self._check_retrain()
+
             except Exception as e:
                 self._failed += 1
                 logger.error(
@@ -298,6 +301,25 @@ class ScrapeWorker:
             "concurrent_limit": CONCURRENT_SCRAPE_LIMIT,
             "poll_interval": POLL_INTERVAL,
         }
+
+    def _check_retrain(self):
+        try:
+            db = SessionLocal()
+            try:
+                delivered_count = db.query(Shipment).filter(
+                    Shipment.delivered_at.isnot(None),
+                    Shipment.shipped_at.isnot(None),
+                ).count()
+                if delivered_count >= 10 and delivered_count % 10 == 0:
+                    logger.info(f"Auto-retrain triggered ({delivered_count} completed shipments)")
+                    from services.trainer import ModelTrainer
+                    trainer = ModelTrainer()
+                    result = trainer.train_eta_model()
+                    logger.info(f"Auto-retrain result: {result}")
+            finally:
+                db.close()
+        except Exception as e:
+            logger.warning(f"Auto-retrain check failed: {e}")
 
 
 worker = ScrapeWorker()

@@ -50,6 +50,7 @@ export function getStatusColor(status: string): string {
   const s = normalizedStatus(status);
   if (s.includes("deliver") && s.includes("fail")) return "text-cyber-red";
   if (s.includes("deliver")) return "text-cyber-green";
+  if (s.includes("auth") || s.includes("required") || s.includes("not found")) return "text-cyber-yellow";
   if (s.includes("transit")) return "text-cyber-cyan";
   if (s.includes("custom")) return "text-cyber-yellow";
   if (s.includes("out for delivery")) return "text-cyber-purple";
@@ -62,6 +63,7 @@ export function getStatusBadgeClass(status: string): string {
   const s = normalizedStatus(status);
   if (s.includes("deliver") && !s.includes("fail")) return "cyber-badge-success";
   if (s.includes("exception") || s.includes("fail")) return "cyber-badge-danger";
+  if (s.includes("auth") || s.includes("required") || s.includes("not found")) return "cyber-badge-warning";
   if (s.includes("custom")) return "cyber-badge-warning";
   if (s.includes("transit") || s.includes("out for delivery")) return "cyber-badge-info";
   return "cyber-badge";

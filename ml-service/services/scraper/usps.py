@@ -1,9 +1,11 @@
+import json
 import httpx
-import xml.etree.ElementTree as ET
 from datetime import datetime
-from xml.sax.saxutils import escape
-from services.scraper.base import BaseCarrierScraper, ScrapedShipment, ScrapedEvent
-from services.config import settings
+from services.scraper.base import (
+    BaseCarrierScraper,
+    ScrapedShipment,
+    ScrapedEvent,
+)
 
 
 class USPSPScraper(BaseCarrierScraper):
@@ -12,10 +14,7 @@ class USPSPScraper(BaseCarrierScraper):
 
     async def track(self, tracking_number: str) -> ScrapedShipment:
         try:
-            if settings.usps_web_tools_user_id:
-                return await self._track_web_tools(tracking_number)
-            return await self._track_public_json(tracking_number)
-
+            return await self._track_via_17track(tracking_number)
         except Exception as e:
             return ScrapedShipment(
                 tracking_number=tracking_number,
@@ -24,189 +23,139 @@ class USPSPScraper(BaseCarrierScraper):
                 events=[ScrapedEvent(status="error", description=str(e))],
             )
 
-    async def _track_web_tools(self, tracking_number: str) -> ScrapedShipment:
-        request_xml = (
-            f'<TrackRequest USERID="{escape(settings.usps_web_tools_user_id or "")}">'
-            f'<TrackID ID="{escape(tracking_number)}"></TrackID>'
-            "</TrackRequest>"
-        )
+    async def _track_via_17track(self, tracking_number: str) -> ScrapedShipment:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "Origin": "https://t.17track.net",
+            "Referer": "https://t.17track.net/",
+        }
 
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.get(
-                "https://secure.shippingapis.com/ShippingAPI.dll",
-                params={"API": "TrackV2", "XML": request_xml},
-                headers={"User-Agent": "ParcelStats/1.0"},
-            )
-            if resp.status_code >= 300:
-                raise ValueError(f"USPS Web Tools returned HTTP {resp.status_code}")
-
-        root = ET.fromstring(resp.text)
-        error = root.find(".//Error")
-        if error is not None:
-            message = self._xml_text(error, "Description") or self._xml_text(error, "Number") or "USPS Web Tools error"
-            raise ValueError(message)
-
-        track_info = root.find(".//TrackInfo")
-        if track_info is None:
-            raise ValueError("USPS Web Tools returned no tracking information")
-
-        return self._shipment_from_xml(tracking_number, track_info)
-
-    async def _track_public_json(self, tracking_number: str) -> ScrapedShipment:
-        async with httpx.AsyncClient(timeout=30, follow_redirects=False) as client:
-            resp = await client.get(
-                "https://tools.usps.com/go/TrackConfirmAction_ajax",
-                params={"tLabels": tracking_number},
-                headers={
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                    "Accept": "application/json, text/javascript, */*; q=0.01",
-                    "X-Requested-With": "XMLHttpRequest",
-                    "Referer": f"https://tools.usps.com/go/TrackConfirmAction?tLabels={tracking_number}",
+        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+            r = await client.post(
+                "https://t.17track.net/handlerdirect",
+                headers=headers,
+                json={
+                    "param": [
+                        {
+                            "f": "1",
+                            "e": self._hash_tracking(tracking_number),
+                        }
+                    ],
+                    "gat": 0,
                 },
             )
 
-        if resp.status_code in {301, 302, 403}:
-            raise ValueError(
-                "USPS public tracking endpoint is blocked or redirected; configure USPS_WEB_TOOLS_USER_ID"
-            )
+            if r.status_code != 200:
+                raise ValueError(f"17track returned HTTP {r.status_code}")
 
-        data = self.response_json(resp)
-        return self._shipment_from_public_json(tracking_number, data)
+            data = r.json()
 
-    def _shipment_from_xml(self, tracking_number: str, track_info: ET.Element) -> ScrapedShipment:
-        events = []
+        if not data or "ret" not in data or data["ret"] != 0:
+            raise ValueError(f"17track unexpected response: {r.text[:200]}")
 
-        summary = track_info.find("TrackSummary")
-        if summary is not None:
-            event = self._event_from_xml(summary)
-            if event:
-                events.append(event)
+        accepted = data.get("dat", {}).get("accepted", [])
+        rejected = data.get("dat", {}).get("rejected", [])
 
-        for detail in track_info.findall("TrackDetail"):
-            event = self._event_from_xml(detail)
-            if event:
-                events.append(event)
-
-        status = events[0].status if events else "pending"
-        service_type = self._xml_text(track_info, "MailClass") or self._xml_text(track_info, "Class")
-        estimated_delivery = self._parse_datetime(
-            self._xml_text(track_info, "ExpectedDeliveryDate")
-            or self._xml_text(track_info, "PredictedDeliveryDate"),
-            self._xml_text(track_info, "ExpectedDeliveryTime")
-            or self._xml_text(track_info, "PredictedDeliveryTime"),
-        )
-
-        return ScrapedShipment(
-            tracking_number=tracking_number,
-            carrier_slug=self.slug,
-            status=status,
-            service_type=service_type,
-            estimated_delivery=estimated_delivery,
-            events=events,
-        )
-
-    def _event_from_xml(self, node: ET.Element) -> ScrapedEvent | None:
-        event_status = self._xml_text(node, "Event")
-        if not event_status:
-            return None
-
-        location = ", ".join(
-            filter(
-                None,
-                [
-                    self._xml_text(node, "EventCity"),
-                    self._xml_text(node, "EventState"),
-                    self._xml_text(node, "EventZIPCode"),
-                    self._xml_text(node, "EventCountry"),
+        if rejected and not accepted:
+            return ScrapedShipment(
+                tracking_number=tracking_number,
+                carrier_slug=self.slug,
+                status="pending",
+                events=[
+                    ScrapedEvent(
+                        status="pending",
+                        description="No tracking information available yet.",
+                    )
                 ],
             )
-        )
 
-        return ScrapedEvent(
-            status=self.normalize_status(event_status),
-            location_name=location or None,
-            description=event_status,
-            event_time=self._parse_datetime(
-                self._xml_text(node, "EventDate"),
-                self._xml_text(node, "EventTime"),
-            ),
-            raw_data={child.tag: child.text for child in node if child.text},
-        )
+        if not accepted:
+            return ScrapedShipment(
+                tracking_number=tracking_number,
+                carrier_slug=self.slug,
+                status="pending",
+                events=[
+                    ScrapedEvent(
+                        status="pending",
+                        description="Tracking information not found.",
+                    )
+                ],
+            )
 
-    def _shipment_from_public_json(self, tracking_number: str, data: dict) -> ScrapedShipment:
+        track_data = accepted[0]
+        track_info = track_data.get("z", {})
+
         events = []
-        track_info = data.get("TrackResults", {}).get("TrackInfo", {})
-        if isinstance(track_info, list):
-            track_info = track_info[0] if track_info else {}
+        status = "pending"
 
-        track_details = track_info.get("TrackDetail", [])
-        if isinstance(track_details, dict):
-            track_details = [track_details]
+        for evt in track_info.get("e", []):
+            event_status = self.normalize_status(evt.get("z", {}).get("c", ""))
+            description = evt.get("z", {}).get("en", "") or evt.get("z", {}).get("c", "")
+            location = ""
+            loc_parts = []
+            for loc_key in ["b", "d", "c"]:
+                loc_val = evt.get(loc_key, "")
+                if loc_val:
+                    loc_parts.append(loc_val)
+            location = ", ".join(loc_parts) if loc_parts else None
 
-        summary = track_info.get("TrackSummary")
-        if isinstance(summary, dict):
-            track_details = [summary, *track_details]
+            event_time = None
+            timestamp = evt.get("a", "")
+            if timestamp:
+                try:
+                    if isinstance(timestamp, (int, float)):
+                        event_time = datetime.fromtimestamp(timestamp / 1000)
+                    elif isinstance(timestamp, str):
+                        ts = int(timestamp)
+                        if ts > 1e12:
+                            event_time = datetime.fromtimestamp(ts / 1000)
+                        else:
+                            event_time = datetime.fromtimestamp(ts)
+                except (ValueError, OSError, OverflowError):
+                    pass
 
-        for detail in track_details:
-            event_status = detail.get("EventStatus") or detail.get("Event") or ""
-            event_city = detail.get("EventCity", "")
-            event_state = detail.get("EventState", "")
-            event_zip = detail.get("EventZIPCode", "")
-            event_country = detail.get("EventCountry", "")
-            event_date = detail.get("EventDate", "")
-            event_time_val = detail.get("EventTime", "")
+            events.append(
+                ScrapedEvent(
+                    status=event_status,
+                    location_name=location,
+                    description=description,
+                    event_time=event_time,
+                )
+            )
 
-            location = ", ".join(filter(None, [event_city, event_state, event_zip, event_country]))
-            events.append(ScrapedEvent(
-                status=self.normalize_status(event_status),
-                location_name=location or None,
-                description=event_status,
-                event_time=self._parse_datetime(event_date, event_time_val),
-                raw_data=detail,
-            ))
+        if events:
+            status = events[0].status
 
-        status = events[0].status if events else "pending"
-        estimated_delivery = self._parse_datetime(
-            track_info.get("ExpectedDeliveryDate") or track_info.get("PredictedDeliveryDate", ""),
-            track_info.get("ExpectedDeliveryTime") or track_info.get("PredictedDeliveryTime", ""),
-        )
+        estimated_delivery = None
+        est_str = track_info.get("y", "")
+        if est_str:
+            try:
+                ts = int(est_str)
+                if ts > 1e12:
+                    estimated_delivery = datetime.fromtimestamp(ts / 1000)
+                else:
+                    estimated_delivery = datetime.fromtimestamp(ts)
+            except (ValueError, OSError, OverflowError):
+                pass
+
+        origin = track_info.get("o", "")
+        dest = track_info.get("d", "")
 
         return ScrapedShipment(
             tracking_number=tracking_number,
             carrier_slug=self.slug,
             status=status,
-            service_type=track_info.get("MailClass") or track_info.get("Class"),
             estimated_delivery=estimated_delivery,
+            origin_name=origin or None,
+            dest_name=dest or None,
             events=events,
         )
 
-    def _xml_text(self, node: ET.Element, tag: str) -> str:
-        child = node.find(tag)
-        return child.text.strip() if child is not None and child.text else ""
-
-    def _parse_datetime(self, date_str: str, time_str: str) -> datetime | None:
-        date_str = (date_str or "").strip()
-        time_str = (time_str or "").strip()
-        if not date_str:
-            return None
-
-        if not time_str:
-            for fmt in ["%B %d, %Y", "%b %d, %Y", "%m/%d/%Y"]:
-                try:
-                    return datetime.strptime(date_str, fmt)
-                except (ValueError, TypeError):
-                    continue
-            return None
-
-        try:
-            return datetime.strptime(f"{date_str} {time_str}", "%B %d, %Y %I:%M %p")
-        except (ValueError, TypeError):
-            pass
-
-        for fmt in ["%b %d, %Y %I:%M %p", "%m/%d/%Y %I:%M %p"]:
-            try:
-                return datetime.strptime(f"{date_str} {time_str}", fmt)
-            except (ValueError, TypeError):
-                continue
-
-        return None
+    @staticmethod
+    def _hash_tracking(tracking_number: str) -> str:
+        h = 0
+        for ch in tracking_number:
+            h = ((h << 5) - h + ord(ch)) & 0xFFFFFFFF
+        return str(h & 0x7FFFFFFF)

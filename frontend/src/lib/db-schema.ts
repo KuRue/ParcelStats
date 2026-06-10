@@ -68,6 +68,7 @@ export const shipments = pgTable("shipments", {
   shippedAt: timestamp("shipped_at", { withTimezone: true }),
   deliveredAt: timestamp("delivered_at", { withTimezone: true }),
   estimatedDelivery: timestamp("estimated_delivery", { withTimezone: true }),
+  source: text("source").notNull().default("user"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

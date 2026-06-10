@@ -60,8 +60,12 @@ NEXTAUTH_URL=https://your-domain.com
 GOOGLE_CLIENT_ID=your_google_client_id
 GOOGLE_CLIENT_SECRET=your_google_client_secret
 
-# Optional, required for reliable USPS tracking
+# Optional carrier API credentials. Required for reliable USPS, UPS, and FedEx tracking.
 USPS_WEB_TOOLS_USER_ID=your_usps_web_tools_user_id
+UPS_CLIENT_ID=your_ups_client_id
+UPS_CLIENT_SECRET=your_ups_client_secret
+FEDEX_CLIENT_ID=your_fedex_client_id
+FEDEX_CLIENT_SECRET=your_fedex_client_secret
 ```
 
 ### 3. Launch
@@ -103,9 +107,9 @@ All data persists in Docker volumes. Back up the `postgres-data` volume regularl
 
 | Carrier | Method | Countries |
 |---------|--------|-----------|
-| USPS | API + Scrape | US |
-| UPS | API + Scrape | US |
-| FedEx | API + Scrape | US |
+| USPS | Web Tools API | US |
+| UPS | OAuth Track API | US |
+| FedEx | OAuth Track API | US |
 | DHL Express | API + Scrape | Global |
 | Royal Mail | Playwright | UK |
 | Canada Post | Playwright | CA |
@@ -131,7 +135,9 @@ All data persists in Docker volumes. Back up the `postgres-data` volume regularl
 
 **Adding a new carrier:** Open a [Carrier Request](../../issues/new?template=carrier_request.md) issue or submit a PR with a new scraper in `ml-service/services/scraper/`.
 
-**USPS note:** USPS blocks unauthenticated server-side access to its public tracking pages in many environments. For reliable USPS tracking, set `USPS_WEB_TOOLS_USER_ID` with a USPS Web Tools tracking credential before starting the stack.
+**Carrier API notes:** USPS, UPS, and FedEx block or redirect unauthenticated server-side tracking requests in many environments. Set `USPS_WEB_TOOLS_USER_ID`, `UPS_CLIENT_ID` + `UPS_CLIENT_SECRET`, and `FEDEX_CLIENT_ID` + `FEDEX_CLIENT_SECRET` before starting the stack. Without those values, matching shipments are marked `carrier_setup_required` instead of retrying into `tracking_exception`.
+
+UPS defaults to the production API host `https://onlinetools.ups.com`. Set `UPS_BASE_URL=https://wwwcie.ups.com` for the UPS customer integration environment. FedEx defaults to `https://apis.fedex.com`; set `FEDEX_BASE_URL=https://apis-sandbox.fedex.com` for sandbox credentials.
 
 ## ML Prediction Model
 

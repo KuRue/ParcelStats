@@ -19,6 +19,16 @@ STATUS_INTERVALS = {
     "label_created": "poll_interval_pending",
 }
 
+NON_POLLABLE_STATUSES = [
+    "delivered",
+    "delivery_exception",
+    "tracking_exception",
+    "error",
+    "carrier_setup_required",
+    "carrier_auth_required",
+    "tracking_not_found",
+]
+
 
 class PollScheduler:
     def __init__(self):
@@ -70,9 +80,7 @@ class PollScheduler:
                 db.query(Shipment)
                 .filter(
                     Shipment.delivered_at.is_(None),
-                    Shipment.status.notin_(
-                        ["delivered", "delivery_exception", "tracking_exception", "error"]
-                    ),
+                    Shipment.status.notin_(NON_POLLABLE_STATUSES),
                     Shipment.updated_at < datetime.utcnow() - timedelta(minutes=30),
                 )
                 .order_by(Shipment.updated_at.asc())

@@ -4,6 +4,14 @@ from datetime import datetime
 from typing import Optional
 
 
+class CarrierStatusError(Exception):
+    def __init__(self, status: str, message: str, raw_data: Optional[dict] = None):
+        super().__init__(message)
+        self.status = status
+        self.message = message
+        self.raw_data = raw_data
+
+
 @dataclass
 class ScrapedEvent:
     status: str
@@ -45,6 +53,26 @@ class BaseCarrierScraper(ABC):
     @abstractmethod
     async def track(self, tracking_number: str) -> ScrapedShipment:
         pass
+
+    def status_shipment(
+        self,
+        tracking_number: str,
+        status: str,
+        description: str,
+        raw_data: Optional[dict] = None,
+    ) -> ScrapedShipment:
+        return ScrapedShipment(
+            tracking_number=tracking_number,
+            carrier_slug=self.slug,
+            status=status,
+            events=[
+                ScrapedEvent(
+                    status=status,
+                    description=description,
+                    raw_data=raw_data,
+                )
+            ],
+        )
 
     def response_json(self, response):
         if response.status_code >= 300:
