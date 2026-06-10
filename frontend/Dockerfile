@@ -1,5 +1,8 @@
 FROM node:20-alpine AS base
 WORKDIR /app
+# Lockfile is generated with npm 11; npm 10 rejects its handling of
+# optional deps, so keep the npm major version aligned.
+RUN npm install -g npm@11
 
 FROM base AS deps
 COPY package.json package-lock.json* ./
