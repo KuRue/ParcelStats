@@ -2,6 +2,7 @@
 
 import { CyberCard } from "@/components/ui/cyber-card";
 import { ConfidenceBar, StatusBadge } from "@/components/tracking/timeline";
+import { formatRegionalDateHour } from "@/lib/utils";
 import { Package, Clock, MapPin, ExternalLink } from "lucide-react";
 import Link from "next/link";
 
@@ -77,7 +78,7 @@ export function TrackingCard({
                   <span>ETA</span>
                 </div>
                 <p className="text-sm font-mono text-cyber-cyan">
-                  {estimatedDelivery}
+                  {formatRegionalDateHour(estimatedDelivery)}
                 </p>
               </div>
             )}

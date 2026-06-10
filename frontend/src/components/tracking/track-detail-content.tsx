@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import ShipmentRouteMap from "@/components/maps/shipment-map-dynamic";
+import { formatRegionalDateHour } from "@/lib/utils";
 
 interface ShipmentDetail {
   id: string;
@@ -231,9 +232,7 @@ export function TrackDetailContent({
                 <div>
                   <p className="stat-label mb-1">Predicted Delivery</p>
                   <p className="text-lg font-display font-bold text-cyber-cyan text-shadow-cyber">
-                    {new Date(
-                      data.prediction.predictedDelivery
-                    ).toLocaleDateString()}
+                    {formatRegionalDateHour(data.prediction.predictedDelivery)}
                   </p>
                 </div>
 
@@ -242,13 +241,9 @@ export function TrackDetailContent({
                     <div>
                       <p className="stat-label mb-1">Confidence Window</p>
                       <p className="text-sm font-mono text-cyber-text">
-                        {new Date(
-                          data.prediction.confidenceLow
-                        ).toLocaleDateString()}{" "}
+                        {formatRegionalDateHour(data.prediction.confidenceLow)}{" "}
                         -{" "}
-                        {new Date(
-                          data.prediction.confidenceHigh
-                        ).toLocaleDateString()}
+                        {formatRegionalDateHour(data.prediction.confidenceHigh)}
                       </p>
                     </div>
                   )}

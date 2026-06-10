@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { formatStatusLabel } from "@/lib/utils";
+import { formatRegionalDateHour, formatStatusLabel } from "@/lib/utils";
 
 interface ShipmentMapItem {
   id: string;
@@ -154,7 +154,7 @@ export function GlobalMap({ shipments, onSelect, selectedId }: GlobalMapProps) {
         ).addTo(layer);
 
         const eta = s.estimatedDelivery
-          ? `<div style="color:#00f0ff;margin-top:4px;">ETA: ${new Date(s.estimatedDelivery).toLocaleDateString()}</div>`
+          ? `<div style="color:#00f0ff;margin-top:4px;">ETA: ${formatRegionalDateHour(s.estimatedDelivery)}</div>`
           : "";
 
         marker.bindPopup(

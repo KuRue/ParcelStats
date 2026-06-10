@@ -28,6 +28,20 @@ export function formatStatusLabel(status: string): string {
   return normalized.charAt(0).toUpperCase() + normalized.slice(1);
 }
 
+export function formatRegionalDateHour(value: string | Date | null | undefined): string {
+  if (!value) return "";
+
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+
+  return new Intl.DateTimeFormat(undefined, {
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+  }).format(date);
+}
+
 function normalizedStatus(status: string): string {
   return status.toLowerCase().replace(/[_-]+/g, " ");
 }
