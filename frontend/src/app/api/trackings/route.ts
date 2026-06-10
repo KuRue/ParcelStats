@@ -59,6 +59,7 @@ export async function GET() {
 
       const [prediction] = await db
         .select({
+          predictedDelivery: predictions.predictedDelivery,
           confidencePct: predictions.confidencePct,
         })
         .from(predictions)
@@ -68,6 +69,7 @@ export async function GET() {
 
       return {
         ...s,
+        estimatedDelivery: s.estimatedDelivery ?? prediction?.predictedDelivery ?? null,
         lastEvent: lastEvent?.description || null,
         lastLocation: lastEvent?.locationName || null,
         lastLat: lastEvent?.locationLat || null,

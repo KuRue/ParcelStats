@@ -1,4 +1,5 @@
 import pytest
+import xml.etree.ElementTree as ET
 
 from services.scraper.base import BaseCarrierScraper, ScrapedShipment
 
@@ -168,3 +169,78 @@ def test_speedpak_parse_waybill():
     assert shipment.events[1].location_lat is None
     assert shipment.events[1].location_lng is None
     assert shipment.shipped_at == shipment.events[-1].event_time
+
+
+def test_usps_parse_web_tools_xml():
+    from services.scraper.usps import USPSPScraper
+
+    scraper = USPSPScraper()
+    track_info = ET.fromstring(
+        """
+        <TrackInfo ID="9400136106196445294475">
+          <Class>USPS Ground Advantage</Class>
+          <ExpectedDeliveryDate>June 12, 2026</ExpectedDeliveryDate>
+          <TrackSummary>
+            <Event>In Transit to Next Facility</Event>
+            <EventDate>June 10, 2026</EventDate>
+            <EventTime>8:15 AM</EventTime>
+            <EventCity>JACKSONVILLE</EventCity>
+            <EventState>FL</EventState>
+            <EventZIPCode>32099</EventZIPCode>
+          </TrackSummary>
+          <TrackDetail>
+            <Event>USPS in possession of item</Event>
+            <EventDate>June 09, 2026</EventDate>
+            <EventTime>3:00 PM</EventTime>
+            <EventCity>TAMPA</EventCity>
+            <EventState>FL</EventState>
+          </TrackDetail>
+        </TrackInfo>
+        """
+    )
+
+    shipment = scraper._shipment_from_xml("9400136106196445294475", track_info)
+
+    assert shipment.status == "in_transit"
+    assert shipment.service_type == "USPS Ground Advantage"
+    assert shipment.estimated_delivery is not None
+    assert len(shipment.events) == 2
+    assert shipment.events[0].location_name == "JACKSONVILLE, FL, 32099"
+    assert shipment.events[1].status == "pending"
+
+
+def test_usps_parse_public_json():
+    from services.scraper.usps import USPSPScraper
+
+    scraper = USPSPScraper()
+    shipment = scraper._shipment_from_public_json(
+        "9400136106196445294475",
+        {
+            "TrackResults": {
+                "TrackInfo": {
+                    "MailClass": "Priority Mail",
+                    "ExpectedDeliveryDate": "June 12, 2026",
+                    "TrackSummary": {
+                        "EventStatus": "Arrived at USPS Facility",
+                        "EventDate": "June 10, 2026",
+                        "EventTime": "8:15 AM",
+                        "EventCity": "JACKSONVILLE",
+                        "EventState": "FL",
+                    },
+                    "TrackDetail": {
+                        "EventStatus": "Departed USPS Facility",
+                        "EventDate": "June 09, 2026",
+                        "EventTime": "3:00 PM",
+                        "EventCity": "TAMPA",
+                        "EventState": "FL",
+                    },
+                }
+            }
+        },
+    )
+
+    assert shipment.status == "arrived_at_facility"
+    assert shipment.service_type == "Priority Mail"
+    assert shipment.estimated_delivery is not None
+    assert len(shipment.events) == 2
+    assert shipment.events[0].location_name == "JACKSONVILLE, FL"

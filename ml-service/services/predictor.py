@@ -1,7 +1,8 @@
 import os
 import joblib
 import pandas as pd
-from datetime import datetime, timedelta
+import uuid
+from datetime import datetime, timedelta, timezone
 from database.connection import SessionLocal
 from database.models import Shipment, Prediction, CarrierRoute, ModelVersion, Carrier
 from services.config import settings
@@ -115,6 +116,8 @@ class ETAPredictor:
             shipment = db.query(Shipment).filter(Shipment.id == shipment_id).first()
             if not shipment:
                 return None
+            if self._is_delivered(shipment):
+                return None
 
             carrier = db.query(Carrier).filter(Carrier.id == shipment.carrier_id).first()
             if not carrier:
@@ -123,51 +126,70 @@ class ETAPredictor:
             origin = (shipment.origin_name or "unknown").split(",")[-1].strip()
             dest = (shipment.dest_name or "unknown").split(",")[-1].strip()
 
-            result = self.predict(
-                carrier_slug=carrier.slug,
-                origin_region=origin,
-                dest_region=dest,
-                service_type=shipment.service_type or "standard",
-                weight_kg=float(shipment.weight_kg) if shipment.weight_kg else 1.0,
-                shipped_at=shipment.shipped_at,
-            )
+            result = None
+            if self.is_ready:
+                result = self.predict(
+                    carrier_slug=carrier.slug,
+                    origin_region=origin,
+                    dest_region=dest,
+                    service_type=shipment.service_type or "standard",
+                    weight_kg=float(shipment.weight_kg) if shipment.weight_kg else 1.0,
+                    shipped_at=shipment.shipped_at,
+                )
+
+            if not result:
+                result = self.fallback_estimate(
+                    carrier_slug=carrier.slug,
+                    origin_region=origin,
+                    dest_region=dest,
+                    service_type=shipment.service_type or "standard",
+                    ref_date=shipment.shipped_at,
+                )
+
+            if not result:
+                result = self._carrier_estimate(shipment)
+
+            if not result:
+                result = self._baseline_estimate(shipment, carrier.slug)
 
             if result:
-                db.add(Prediction(
-                    shipment_id=shipment_id,
-                    predicted_delivery=result["predicted_delivery"],
-                    confidence_low=result["confidence_low"],
-                    confidence_high=result["confidence_high"],
-                    confidence_pct=result["confidence_pct"],
-                    model_version=result["model_version"],
-                ))
+                db.add(self._prediction_from_result(shipment_id, result))
                 db.commit()
 
             return result
         finally:
             db.close()
 
-    def fallback_estimate(self, carrier_slug: str, origin_region: str, dest_region: str) -> dict | None:
+    def fallback_estimate(
+        self,
+        carrier_slug: str,
+        origin_region: str,
+        dest_region: str,
+        service_type: str | None = None,
+        ref_date: datetime | None = None,
+    ) -> dict | None:
         db = SessionLocal()
         try:
             carrier = db.query(Carrier).filter(Carrier.slug == carrier_slug).first()
             if not carrier:
                 return None
 
-            route = (
+            query = (
                 db.query(CarrierRoute)
                 .filter(
                     CarrierRoute.carrier_id == carrier.id,
                     CarrierRoute.origin_region == origin_region.lower(),
                     CarrierRoute.dest_region == dest_region.lower(),
                 )
-                .first()
             )
+            route = query.filter(CarrierRoute.service_type == service_type).first()
+            if not route:
+                route = query.order_by(CarrierRoute.sample_count.desc()).first()
 
             if not route:
                 return None
 
-            ref = datetime.utcnow()
+            ref = self._naive_utc(ref_date) or datetime.utcnow()
             return {
                 "predicted_delivery": (ref + timedelta(days=float(route.median_days))).isoformat(),
                 "confidence_low": (ref + timedelta(days=float(route.p10_days))).isoformat(),
@@ -179,3 +201,93 @@ class ETAPredictor:
             }
         finally:
             db.close()
+
+    def _prediction_from_result(self, shipment_id: str, result: dict) -> Prediction:
+        return Prediction(
+            id=str(uuid.uuid4()),
+            shipment_id=shipment_id,
+            predicted_delivery=self._to_datetime(result["predicted_delivery"]),
+            confidence_low=self._to_datetime(result.get("confidence_low")),
+            confidence_high=self._to_datetime(result.get("confidence_high")),
+            confidence_pct=result.get("confidence_pct"),
+            model_version=result["model_version"],
+            features=result.get("features"),
+        )
+
+    def _carrier_estimate(self, shipment: Shipment) -> dict | None:
+        if not shipment.estimated_delivery:
+            return None
+
+        predicted = shipment.estimated_delivery
+        predicted = self._naive_utc(predicted) or predicted
+        return {
+            "predicted_delivery": predicted.isoformat(),
+            "confidence_low": (predicted - timedelta(days=1)).isoformat(),
+            "confidence_high": (predicted + timedelta(days=1)).isoformat(),
+            "confidence_pct": 70,
+            "model_version": "carrier_estimate",
+            "features": {"source": "carrier_estimated_delivery"},
+        }
+
+    def _baseline_estimate(self, shipment: Shipment, carrier_slug: str) -> dict:
+        ref = self._naive_utc(shipment.shipped_at) or datetime.utcnow()
+        median_days = self._baseline_days(carrier_slug, shipment.origin_name, shipment.dest_name)
+        predicted = ref + timedelta(days=median_days)
+        minimum_prediction = datetime.utcnow() + timedelta(days=1)
+        if predicted < minimum_prediction:
+            predicted = minimum_prediction
+
+        return {
+            "predicted_delivery": predicted.isoformat(),
+            "confidence_low": (predicted - timedelta(days=2)).isoformat(),
+            "confidence_high": (predicted + timedelta(days=4)).isoformat(),
+            "confidence_pct": 45,
+            "model_version": "baseline_eta",
+            "median_days": median_days,
+            "features": {
+                "carrier_slug": carrier_slug,
+                "source": "baseline",
+            },
+        }
+
+    def _baseline_days(self, carrier_slug: str, origin_name: str | None, dest_name: str | None) -> int:
+        defaults = {
+            "usps": 4,
+            "ups": 4,
+            "fedex": 4,
+            "dhl-express": 5,
+            "speedpak": 10,
+        }
+        days = defaults.get(carrier_slug, 7)
+
+        origin_country = self._country_token(origin_name)
+        dest_country = self._country_token(dest_name)
+        if origin_country and dest_country and origin_country != dest_country:
+            days += 3
+
+        return days
+
+    def _country_token(self, location_name: str | None) -> str | None:
+        if not location_name or "," not in location_name:
+            return None
+        return location_name.split(",")[-1].strip().lower()
+
+    def _is_delivered(self, shipment: Shipment) -> bool:
+        status = (shipment.status or "").lower()
+        return shipment.delivered_at is not None or (
+            "deliver" in status and "fail" not in status and "exception" not in status
+        )
+
+    def _to_datetime(self, value):
+        if value is None or isinstance(value, datetime):
+            return self._naive_utc(value)
+        if isinstance(value, str):
+            return datetime.fromisoformat(value.replace("Z", "+00:00")).replace(tzinfo=None)
+        return value
+
+    def _naive_utc(self, value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            return value
+        return value.astimezone(timezone.utc).replace(tzinfo=None)

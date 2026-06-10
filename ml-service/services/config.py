@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     scrape_headless: bool = True
     model_retrain_schedule: str = "0 3 * * 0"
     model_path: str = "/app/models"
+    usps_web_tools_user_id: str | None = None
 
     poll_interval_active: int = 1800
     poll_interval_transit: int = 1800

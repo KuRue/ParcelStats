@@ -80,6 +80,6 @@ class BaseCarrierScraper(ABC):
             return "departed_facility"
         if any(w in s for w in ["label", "pre-ship", "information received", "electronic"]):
             return "label_created"
-        if any(w in s for w in ["pending", "picked up", "collected", "acceptance"]):
+        if any(w in s for w in ["pending", "picked up", "collected", "acceptance", "possession"]):
             return "pending"
         return raw_status

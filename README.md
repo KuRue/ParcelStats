@@ -9,7 +9,7 @@ AI-powered community-driven parcel tracking. Predict delivery dates with confide
 - **25+ International Carriers** — USPS, UPS, FedEx, DHL, Royal Mail, Canada Post, and more
 - **AI ETA Predictions** — XGBoost-powered delivery predictions with confidence intervals
 - **Route Analysis** — Historical route patterns and carrier performance stats
-- **Cyber-themed UI** — Dark mode, terminal-inspired design, real-time updates
+- **Cyber-themed UI** — Dark mode, neon accents, maps, and real-time updates
 - **Google OAuth** — Secure authentication, no passwords
 - **Community Intelligence** — Every tracked shipment improves the model
 - **Self-hosted** — Full Docker stack, deploy anywhere
@@ -59,6 +59,9 @@ NEXTAUTH_SECRET=openssl rand -base64 32
 NEXTAUTH_URL=https://your-domain.com
 GOOGLE_CLIENT_ID=your_google_client_id
 GOOGLE_CLIENT_SECRET=your_google_client_secret
+
+# Optional, required for reliable USPS tracking
+USPS_WEB_TOOLS_USER_ID=your_usps_web_tools_user_id
 ```
 
 ### 3. Launch
@@ -128,6 +131,8 @@ All data persists in Docker volumes. Back up the `postgres-data` volume regularl
 
 **Adding a new carrier:** Open a [Carrier Request](../../issues/new?template=carrier_request.md) issue or submit a PR with a new scraper in `ml-service/services/scraper/`.
 
+**USPS note:** USPS blocks unauthenticated server-side access to its public tracking pages in many environments. For reliable USPS tracking, set `USPS_WEB_TOOLS_USER_ID` with a USPS Web Tools tracking credential before starting the stack.
+
 ## ML Prediction Model
 
 ### How it Works
@@ -140,6 +145,8 @@ All data persists in Docker volumes. Back up the `postgres-data` volume regularl
    - **P90 bound** — 90th percentile (conservative)
 4. **Confidence Score** — Calculated from the spread between P10 and P90
 5. **Retraining** — Automatic weekly retraining as data grows
+
+When there is not enough completed shipment history to train the XGBoost model, ParcelStats stores fallback predictions from carrier-provided ETAs, route statistics, or conservative carrier baselines. These predictions are replaced by stronger model predictions once enough data exists.
 
 ### Improving Predictions
 

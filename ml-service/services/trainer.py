@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import joblib
 import os
+import uuid
 from sklearn.model_selection import cross_val_score
 from xgboost import XGBRegressor
 
@@ -108,6 +109,7 @@ class ModelTrainer:
 
             db.query(ModelVersion).filter(ModelVersion.model_name == "eta_predictor").update({"is_active": False})
             db.add(ModelVersion(
+                id=str(uuid.uuid4()),
                 model_name="eta_predictor",
                 version=version,
                 metrics=metrics,
@@ -169,6 +171,7 @@ class ModelTrainer:
                 existing.updated_at = datetime.utcnow()
             else:
                 db.add(CarrierRoute(
+                    id=str(uuid.uuid4()),
                     carrier_id=carrier_id,
                     origin_region=origin,
                     dest_region=dest,

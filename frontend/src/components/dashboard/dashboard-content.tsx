@@ -29,6 +29,27 @@ interface Tracking {
   updatedAt: string;
 }
 
+function statusRank(status: string): number {
+  if (isDeliveredStatus(status)) return 3;
+  if (isIssueStatus(status)) return 2;
+  return 1;
+}
+
+function isIssueStatus(status: string): boolean {
+  const s = status.toLowerCase();
+  return s.includes("exception") || s.includes("fail") || s.includes("error");
+}
+
+function isDeliveredStatus(status: string): boolean {
+  const s = status.toLowerCase();
+  return s.includes("deliver") && !isIssueStatus(status);
+}
+
+function updatedAtTime(tracking: Tracking): number {
+  const time = new Date(tracking.updatedAt).getTime();
+  return Number.isFinite(time) ? time : 0;
+}
+
 export function DashboardContent({ userId }: { userId: string }) {
   const [trackings, setTrackings] = useState<Tracking[]>([]);
   const [loading, setLoading] = useState(true);
@@ -111,24 +132,29 @@ export function DashboardContent({ userId }: { userId: string }) {
   const detectedCarrierSlug = detectCarrierSlug(newTracking);
   const detectedCarrier = carriers.find((c) => c.slug === detectedCarrierSlug);
 
-  const filtered =
+  const filtered = (
     filter === "all"
-      ? trackings
+      ? [...trackings]
       : trackings.filter((t) => {
-          const s = t.status.toLowerCase();
-          if (filter === "active") return !s.includes("deliver") && !s.includes("exception");
-          if (filter === "delivered") return s.includes("deliver");
-          if (filter === "issues") return s.includes("exception") || s.includes("fail");
+          if (filter === "active") return !isDeliveredStatus(t.status) && !isIssueStatus(t.status);
+          if (filter === "delivered") return isDeliveredStatus(t.status);
+          if (filter === "issues") return isIssueStatus(t.status);
           return true;
-        });
+        })
+  ).sort((a, b) => {
+    if (filter === "all") {
+      const rankDiff = statusRank(a.status) - statusRank(b.status);
+      if (rankDiff !== 0) return rankDiff;
+    }
+    return updatedAtTime(b) - updatedAtTime(a);
+  });
 
   const stats = {
     total: trackings.length,
     active: trackings.filter((t) => {
-      const s = t.status.toLowerCase();
-      return !s.includes("deliver") && !s.includes("exception");
+      return !isDeliveredStatus(t.status) && !isIssueStatus(t.status);
     }).length,
-    delivered: trackings.filter((t) => t.status.toLowerCase().includes("deliver")).length,
+    delivered: trackings.filter((t) => isDeliveredStatus(t.status)).length,
     avgConfidence:
       trackings.filter((t) => t.confidencePct).length > 0
         ? Math.round(

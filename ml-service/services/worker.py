@@ -191,11 +191,24 @@ class ScrapeWorker:
 
                 db.commit()
 
-                if self.predictor.is_ready:
-                    try:
-                        self.predictor.predict_for_shipment(shipment_id)
-                    except Exception as e:
-                        logger.warning(f"Prediction failed for {shipment_id}: {e}")
+                try:
+                    prediction = self.predictor.predict_for_shipment(shipment_id)
+                    if prediction:
+                        self._publish_event(
+                            event_type="prediction_updated",
+                            shipment_id=shipment_id,
+                            tracking_number=tracking_number,
+                            carrier_slug=carrier_slug,
+                            status=result.status,
+                            user_id=shipment.user_id,
+                            data={
+                                "predicted_delivery": prediction.get("predicted_delivery"),
+                                "confidence_pct": prediction.get("confidence_pct"),
+                                "model_version": prediction.get("model_version"),
+                            },
+                        )
+                except Exception as e:
+                    logger.warning(f"Prediction failed for {shipment_id}: {e}")
 
                 scrape_job.status = "completed"
                 scrape_job.completed_at = datetime.utcnow()

@@ -34,7 +34,12 @@ async def predict_eta(req: ETAPredictionRequest):
     )
 
     if not result:
-        result = predictor.fallback_estimate(req.carrier_slug, origin, dest)
+        result = predictor.fallback_estimate(
+            req.carrier_slug,
+            origin,
+            dest,
+            service_type=req.service_type or "standard",
+        )
         if not result:
             return {
                 "status": "no_model",
