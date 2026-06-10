@@ -12,7 +12,7 @@ class FedExScraper(BaseCarrierScraper):
         status = "pending"
 
         try:
-            async with httpx.Client(timeout=30) as client:
+            async with httpx.AsyncClient(timeout=30) as client:
                 resp = await client.post(
                     "https://www.fedex.com/trackingCal/track",
                     data={
@@ -24,7 +24,7 @@ class FedExScraper(BaseCarrierScraper):
                         "Content-Type": "application/x-www-form-urlencoded",
                     },
                 )
-                data = resp.json()
+                data = self.response_json(resp)
 
                 track_results = (
                     data.get("TrackPackagesResponse", {})

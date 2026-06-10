@@ -16,8 +16,24 @@ export function formatConfidence(pct: number): {
   return { label: "Very Low", color: "text-cyber-red" };
 }
 
+export function formatStatusLabel(status: string): string {
+  if (!status) return "Unknown";
+
+  const normalized = status
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
+function normalizedStatus(status: string): string {
+  return status.toLowerCase().replace(/[_-]+/g, " ");
+}
+
 export function getStatusColor(status: string): string {
-  const s = status.toLowerCase();
+  const s = normalizedStatus(status);
   if (s.includes("deliver") && s.includes("fail")) return "text-cyber-red";
   if (s.includes("deliver")) return "text-cyber-green";
   if (s.includes("transit")) return "text-cyber-cyan";
@@ -29,7 +45,7 @@ export function getStatusColor(status: string): string {
 }
 
 export function getStatusBadgeClass(status: string): string {
-  const s = status.toLowerCase();
+  const s = normalizedStatus(status);
   if (s.includes("deliver") && !s.includes("fail")) return "cyber-badge-success";
   if (s.includes("exception") || s.includes("fail")) return "cyber-badge-danger";
   if (s.includes("custom")) return "cyber-badge-warning";

@@ -146,14 +146,14 @@ export function DashboardContent({ userId }: { userId: string }) {
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-6 md:py-8 pb-24 md:pb-8">
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
         <div>
           <h1 className="font-display text-2xl text-cyber-text">Dashboard</h1>
           <p className="text-sm text-cyber-muted font-mono mt-1">
             Your tracked shipments
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex w-full flex-wrap items-center justify-between gap-3 sm:w-auto sm:justify-end">
           {hasMapData && (
             <div className="flex items-center border border-cyber-border rounded overflow-hidden">
               <button
@@ -201,14 +201,14 @@ export function DashboardContent({ userId }: { userId: string }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-6">
         <StatCard label="Total Tracked" value={stats.total} color="cyan" />
         <StatCard label="Active" value={stats.active} color="purple" />
         <StatCard label="Delivered" value={stats.delivered} color="green" />
         <StatCard label="Avg Confidence" value={`${stats.avgConfidence}%`} color="yellow" />
       </div>
 
-      <CyberCard terminal title="parcelstats://add-tracking" className="mb-6">
+      <CyberCard terminal title="Add Tracking" className="mb-6">
         <form onSubmit={handleAddTracking} className="flex flex-col sm:flex-row gap-3">
           <div className="flex-1">
             <input
@@ -222,7 +222,7 @@ export function DashboardContent({ userId }: { userId: string }) {
           <select
             value={newCarrier}
             onChange={(e) => setNewCarrier(e.target.value)}
-            className="cyber-input text-sm min-w-[160px]"
+            className="cyber-input text-sm w-full sm:w-auto sm:min-w-[160px]"
           >
             <option value="auto">
               {detectedCarrier ? `Auto: ${detectedCarrier.name}` : "Auto-detect"}
@@ -236,7 +236,7 @@ export function DashboardContent({ userId }: { userId: string }) {
           <button
             type="submit"
             disabled={adding || !newTracking || (newCarrier === "auto" && !detectedCarrierSlug)}
-            className="cyber-btn-primary cyber-btn whitespace-nowrap"
+            className="cyber-btn-primary cyber-btn w-full whitespace-nowrap sm:w-auto"
           >
             {adding ? (
               <Loader2 className="w-4 h-4 animate-spin" />
@@ -252,8 +252,8 @@ export function DashboardContent({ userId }: { userId: string }) {
       </CyberCard>
 
       {viewMode === "split" && hasMapData && !loading && (
-        <CyberCard terminal title="map://global" glow="cyan" className="mb-6">
-          <div className="h-[280px] md:h-[400px] -m-4 mt-0">
+        <CyberCard terminal title="Global Map" glow="cyan" className="mb-6">
+          <div className="h-[260px] sm:h-[320px] md:h-[400px] -m-3 mt-0 sm:-m-4 sm:mt-0">
             <GlobalMap
               shipments={trackings}
               onSelect={(id) => setSelectedShipment(id === selectedShipment ? null : id)}
@@ -263,7 +263,7 @@ export function DashboardContent({ userId }: { userId: string }) {
         </CyberCard>
       )}
 
-      <div className="flex items-center gap-2 mb-4">
+      <div className="flex flex-wrap items-center gap-2 mb-4">
         {["all", "active", "delivered", "issues"].map((f) => (
           <button
             key={f}
@@ -277,7 +277,7 @@ export function DashboardContent({ userId }: { userId: string }) {
             {f.charAt(0).toUpperCase() + f.slice(1)}
           </button>
         ))}
-        <span className="text-xs text-cyber-muted ml-auto font-mono">
+        <span className="text-xs text-cyber-muted ml-0 w-full font-mono sm:ml-auto sm:w-auto">
           {filtered.length} shipment{filtered.length !== 1 ? "s" : ""}
         </span>
       </div>

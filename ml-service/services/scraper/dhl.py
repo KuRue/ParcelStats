@@ -12,7 +12,7 @@ class DHLExpressScraper(BaseCarrierScraper):
         status = "pending"
 
         try:
-            async with httpx.Client(timeout=30) as client:
+            async with httpx.AsyncClient(timeout=30) as client:
                 resp = await client.get(
                     "https://www.dhl.com/shipmentTracking",
                     params={"AWB": tracking_number},
@@ -21,7 +21,7 @@ class DHLExpressScraper(BaseCarrierScraper):
                         "Accept": "application/json",
                     },
                 )
-                data = resp.json()
+                data = self.response_json(resp)
 
                 shipments = data.get("shipments", [])
                 if shipments:

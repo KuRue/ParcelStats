@@ -82,12 +82,14 @@ class ScrapeWorker:
             carrier_slug = job["carrier_slug"]
             shipment_id = job["shipment_id"]
             attempts = job.get("attempts", 1)
+            scrape_job = None
 
             logger.info(
                 f"Processing {carrier_slug}:{tracking_number} (attempt {attempts})"
             )
 
             db = SessionLocal()
+            shipment = None
             try:
                 shipment = (
                     db.query(Shipment).filter(Shipment.id == shipment_id).first()
@@ -166,10 +168,8 @@ class ScrapeWorker:
                     if existing:
                         if event.location_name:
                             existing.location_name = event.location_name
-                        if event.location_lat is not None:
-                            existing.location_lat = event.location_lat
-                        if event.location_lng is not None:
-                            existing.location_lng = event.location_lng
+                        existing.location_lat = event.location_lat
+                        existing.location_lng = event.location_lng
                         if event.description:
                             existing.description = event.description
                         if event.raw_data:
@@ -220,16 +220,25 @@ class ScrapeWorker:
                 )
 
                 try:
-                    scrape_job.status = "failed"
-                    scrape_job.last_error = str(e)[:500]
-                    scrape_job.attempts = attempts
-                    db.commit()
-
                     requeued = self.queue.requeue_failed(job, str(e))
+                    if scrape_job:
+                        scrape_job.status = "failed"
+                        scrape_job.last_error = str(e)[:500]
+                        scrape_job.attempts = attempts
+                        retry_at = job.get("retry_at")
+                        if retry_at:
+                            try:
+                                scrape_job.next_attempt_at = datetime.fromisoformat(retry_at)
+                            except ValueError:
+                                pass
                     if not requeued:
+                        if shipment:
+                            shipment.status = "tracking_exception"
+                            shipment.updated_at = datetime.utcnow()
                         logger.warning(
                             f"Max retries reached for {carrier_slug}:{tracking_number}"
                         )
+                    db.commit()
                 except Exception:
                     pass
 

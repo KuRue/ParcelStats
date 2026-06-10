@@ -84,10 +84,10 @@ export function StatsContent() {
       </div>
 
       <div className="grid lg:grid-cols-2 gap-6">
-        <CyberCard terminal title="stats://carrier-performance">
-          <h2 className="text-sm font-display uppercase tracking-wider text-cyber-cyan mb-4 flex items-center gap-2">
+        <CyberCard terminal title="Carrier Performance">
+          <h2 className="text-sm font-display tracking-wide text-cyber-cyan mb-4 flex items-center gap-2">
             <BarChart3 className="w-4 h-4" />
-            Carrier Performance
+            Top carriers
           </h2>
 
           {!stats?.topCarriers.length ? (
@@ -124,8 +124,8 @@ export function StatsContent() {
           )}
         </CyberCard>
 
-        <CyberCard terminal title="stats://route-analysis">
-          <h2 className="text-sm font-display uppercase tracking-wider text-cyber-purple mb-4 flex items-center gap-2">
+        <CyberCard terminal title="Route Analysis">
+          <h2 className="text-sm font-display tracking-wide text-cyber-purple mb-4 flex items-center gap-2">
             <TrendingUp className="w-4 h-4" />
             Popular Routes
           </h2>
@@ -152,7 +152,7 @@ export function StatsContent() {
                   </div>
                   <div className="flex items-center gap-4">
                     <span className="text-xs text-cyber-muted font-mono">
-                      n={route.sampleCount}
+                      {route.sampleCount} samples
                     </span>
                     <span className="text-sm text-cyber-purple font-mono">
                       {route.avgDays.toFixed(1)}d

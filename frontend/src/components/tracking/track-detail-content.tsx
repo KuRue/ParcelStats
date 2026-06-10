@@ -125,31 +125,36 @@ export function TrackDetailContent({
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-6 md:py-8 pb-24 md:pb-8">
-      <div className="flex items-center gap-4 mb-8">
-        <Link
-          href="/dashboard"
-          className="text-cyber-muted hover:text-cyber-cyan transition-colors"
-        >
-          <ArrowLeft className="w-5 h-5" />
-        </Link>
-        <div className="flex-1">
-          <div className="flex items-center gap-3">
-            <h1 className="font-display text-xl text-cyber-text">
-              {data.trackingNumber}
-            </h1>
-            <StatusBadge status={data.status} />
+      <div className="flex flex-col gap-3 mb-6 sm:flex-row sm:items-center sm:gap-4 sm:mb-8">
+        <div className="flex w-full min-w-0 items-start gap-3 sm:flex-1">
+          <Link
+            href="/dashboard"
+            className="mt-1 shrink-0 text-cyber-muted hover:text-cyber-cyan transition-colors"
+            aria-label="Back to Dashboard"
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </Link>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+              <h1 className="font-display text-base leading-snug text-cyber-text break-all sm:text-xl">
+                {data.trackingNumber}
+              </h1>
+              <div className="flex flex-wrap gap-2">
+                <StatusBadge status={data.status} />
+              </div>
+            </div>
+            <p className="text-sm text-cyber-muted font-mono break-words">
+              {data.carrier.name}
+              {data.serviceType ? ` - ${data.serviceType}` : ""}
+            </p>
           </div>
-          <p className="text-sm text-cyber-muted font-mono">
-            {data.carrier.name}
-            {data.serviceType ? ` - ${data.serviceType}` : ""}
-          </p>
         </div>
         {trackingUrl && (
           <a
             href={trackingUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="cyber-btn text-xs"
+            className="cyber-btn w-full text-xs sm:w-auto sm:shrink-0"
           >
             <ExternalLink className="w-3 h-3 mr-1" />
             Carrier Site
@@ -157,7 +162,7 @@ export function TrackDetailContent({
         )}
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-6 sm:mb-8">
         {data.originName && (
           <StatCard label="Origin" value={data.originName} color="purple" />
         )}
@@ -182,7 +187,7 @@ export function TrackDetailContent({
 
       <div className="grid lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
-          <CyberCard terminal title="map://route" glow="cyan">
+          <CyberCard terminal title="Route Map" glow="cyan">
             <ShipmentRouteMap
               events={data.events.map((e) => ({
                 ...e,
@@ -199,10 +204,7 @@ export function TrackDetailContent({
             />
           </CyberCard>
 
-          <CyberCard terminal title="shipment://events">
-            <h2 className="text-sm font-display uppercase tracking-wider text-cyber-cyan mb-4">
-              Tracking Events
-            </h2>
+          <CyberCard terminal title="Tracking Events">
             <TrackingTimeline
               events={data.events.map((e, i) => ({
                 status: e.status,
@@ -217,10 +219,10 @@ export function TrackDetailContent({
 
         <div className="space-y-4">
           {data.prediction && (
-            <CyberCard glow="cyan" terminal title="ml://prediction">
+            <CyberCard glow="cyan" terminal title="Delivery Prediction">
               <div className="flex items-center gap-2 mb-4">
                 <Brain className="w-4 h-4 text-cyber-cyan" />
-                <h3 className="text-sm font-display uppercase tracking-wider text-cyber-cyan">
+                <h3 className="text-sm font-display tracking-wide text-cyber-cyan">
                   AI Prediction
                 </h3>
               </div>

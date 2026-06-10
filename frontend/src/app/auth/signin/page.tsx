@@ -4,7 +4,7 @@ import { useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Package, Terminal, Loader2, AlertCircle, Mail, Lock, User } from "lucide-react";
+import { Package, LogIn, Loader2, AlertCircle, Mail, Lock, User, UserPlus } from "lucide-react";
 
 export default function SignInPage() {
   const router = useRouter();
@@ -71,9 +71,13 @@ export default function SignInPage() {
           <div className="cyber-card-glow p-8">
             <div className="relative z-10">
               <div className="flex items-center gap-2 mb-6">
-                <Terminal className="w-5 h-5 text-cyber-cyan" />
+                {isRegister ? (
+                  <UserPlus className="w-5 h-5 text-cyber-cyan" />
+                ) : (
+                  <LogIn className="w-5 h-5 text-cyber-cyan" />
+                )}
                 <h1 className="font-display text-xl text-cyber-cyan">
-                  {isRegister ? "CREATE ACCOUNT" : "SIGN IN"}
+                  {isRegister ? "Create Account" : "Sign In"}
                 </h1>
               </div>
 
@@ -81,7 +85,7 @@ export default function SignInPage() {
                 <button
                   type="button"
                   onClick={() => { setIsRegister(false); setError(""); }}
-                  className={`flex-1 py-2 text-xs font-mono uppercase tracking-wider transition-all ${
+                  className={`flex-1 py-2 text-sm font-mono tracking-wide transition-all ${
                     !isRegister
                       ? "bg-cyber-cyan/20 text-cyber-cyan border-b-2 border-cyber-cyan"
                       : "text-cyber-muted hover:text-cyber-text"
@@ -92,7 +96,7 @@ export default function SignInPage() {
                 <button
                   type="button"
                   onClick={() => { setIsRegister(true); setError(""); }}
-                  className={`flex-1 py-2 text-xs font-mono uppercase tracking-wider transition-all ${
+                  className={`flex-1 py-2 text-sm font-mono tracking-wide transition-all ${
                     isRegister
                       ? "bg-cyber-cyan/20 text-cyber-cyan border-b-2 border-cyber-cyan"
                       : "text-cyber-muted hover:text-cyber-text"
@@ -112,7 +116,7 @@ export default function SignInPage() {
               <form onSubmit={handleSubmit} className="space-y-4">
                 {isRegister && (
                   <div>
-                    <label className="block text-xs font-mono text-cyber-muted uppercase tracking-wider mb-1">
+                    <label className="block text-xs font-mono text-cyber-muted tracking-wide mb-1">
                       Name
                     </label>
                     <div className="relative">
@@ -129,7 +133,7 @@ export default function SignInPage() {
                 )}
 
                 <div>
-                  <label className="block text-xs font-mono text-cyber-muted uppercase tracking-wider mb-1">
+                  <label className="block text-xs font-mono text-cyber-muted tracking-wide mb-1">
                     Email
                   </label>
                   <div className="relative">
@@ -145,7 +149,7 @@ export default function SignInPage() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-mono text-cyber-muted uppercase tracking-wider mb-1">
+                  <label className="block text-xs font-mono text-cyber-muted tracking-wide mb-1">
                     Password
                   </label>
                   <div className="relative">
@@ -174,9 +178,9 @@ export default function SignInPage() {
                   {loading ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
                   ) : (
-                    <Terminal className="w-4 h-4" />
+                    <LogIn className="w-4 h-4" />
                   )}
-                  {isRegister ? "CREATE ACCOUNT" : "SIGN IN"}
+                  {isRegister ? "Create Account" : "Sign In"}
                 </button>
               </form>
             </div>

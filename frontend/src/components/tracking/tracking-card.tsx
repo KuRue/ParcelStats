@@ -42,14 +42,14 @@ export function TrackingCard({
         }
         className="hover:border-cyber-cyan/40 transition-all duration-200 cursor-pointer group"
       >
-        <div className="flex items-start justify-between gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-2">
+            <div className="flex flex-wrap items-center gap-2 mb-2">
               <Package className="w-4 h-4 text-cyber-cyan shrink-0" />
-              <span className="text-sm font-mono text-cyber-text truncate">
+              <span className="min-w-0 text-sm font-mono text-cyber-text break-all sm:truncate">
                 {trackingNumber}
               </span>
-              <span className="text-xs text-cyber-muted font-mono">
+              <span className="text-xs text-cyber-muted font-mono break-words">
                 {carrier}
               </span>
             </div>
@@ -59,19 +59,19 @@ export function TrackingCard({
             </div>
 
             {lastEvent && (
-              <p className="text-xs text-cyber-muted mb-1">{lastEvent}</p>
+              <p className="text-xs text-cyber-muted mb-1 break-words">{lastEvent}</p>
             )}
             {lastLocation && (
-              <div className="flex items-center gap-1 text-xs text-cyber-muted/70">
-                <MapPin className="w-3 h-3" />
-                <span>{lastLocation}</span>
+              <div className="flex items-start gap-1 text-xs text-cyber-muted/70">
+                <MapPin className="w-3 h-3 shrink-0 mt-0.5" />
+                <span className="break-words">{lastLocation}</span>
               </div>
             )}
           </div>
 
-          <div className="flex flex-col items-end gap-2 shrink-0">
+          <div className="flex items-center justify-between gap-3 sm:flex-col sm:items-end sm:gap-2 sm:shrink-0">
             {estimatedDelivery && (
-              <div className="text-right">
+              <div className="text-left sm:text-right">
                 <div className="flex items-center gap-1 text-xs text-cyber-muted">
                   <Clock className="w-3 h-3" />
                   <span>ETA</span>
@@ -83,7 +83,7 @@ export function TrackingCard({
             )}
 
             {confidencePct !== undefined && (
-              <div className="w-24">
+              <div className="w-24 shrink-0">
                 <ConfidenceBar value={confidencePct} />
               </div>
             )}

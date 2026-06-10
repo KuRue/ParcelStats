@@ -12,7 +12,7 @@ class UPSScraper(BaseCarrierScraper):
         status = "pending"
 
         try:
-            async with httpx.Client(timeout=30) as client:
+            async with httpx.AsyncClient(timeout=30) as client:
                 resp = await client.get(
                     f"https://www.ups.com/track/api/Track/{tracking_number}",
                     headers={
@@ -20,7 +20,7 @@ class UPSScraper(BaseCarrierScraper):
                         "Accept": "application/json",
                     },
                 )
-                data = resp.json()
+                data = self.response_json(resp)
 
                 track_details = (
                     data.get("trackDetails", [{}])[0]

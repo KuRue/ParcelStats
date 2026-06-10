@@ -23,6 +23,8 @@ COUNTRY_COORDS: dict[str, Coordinate] = {
 }
 
 CITY_COORDS: dict[tuple[str, str], Coordinate] = {
+    ("chicago", "us"): (41.8781, -87.6298),
+    ("chicagoil", "us"): (41.8781, -87.6298),
     ("dongguan", "cn"): (23.0207, 113.7518),
     ("largo", "us"): (27.9095, -82.7873),
     ("shenzhen", "cn"): (22.5431, 114.0579),

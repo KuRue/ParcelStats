@@ -28,24 +28,20 @@ export function CyberCard({
   return (
     <div
       className={cn(
-        "bg-cyber-card border border-cyber-border rounded-lg relative overflow-hidden",
+        "bg-cyber-card/95 border border-cyber-border rounded-lg relative overflow-hidden shadow-sm",
         glowClasses[glow],
         className
       )}
     >
-      {terminal && (
-        <div className="terminal-header">
-          <div className="terminal-dot bg-cyber-red" />
-          <div className="terminal-dot bg-cyber-yellow" />
-          <div className="terminal-dot bg-cyber-green" />
-          {title && (
-            <span className="text-xs text-cyber-muted font-mono ml-2">
-              {title}
-            </span>
-          )}
+      {(terminal || title) && title && (
+        <div className="panel-header">
+          <div className="h-4 w-1 rounded-full bg-cyber-cyan/70" />
+          <span className="panel-title">
+            {title}
+          </span>
         </div>
       )}
-      <div className="relative z-10 p-4">{children}</div>
+      <div className="relative z-10 p-3 sm:p-4">{children}</div>
     </div>
   );
 }
@@ -71,8 +67,13 @@ export function StatCard({
 
   return (
     <CyberCard>
-      <div className="text-center">
-        <p className={cn("text-2xl font-display font-bold", colorMap[color])}>
+      <div className="text-center min-w-0">
+        <p
+          className={cn(
+            "text-xl sm:text-2xl leading-tight font-display font-bold break-words",
+            colorMap[color]
+          )}
+        >
           {value}
         </p>
         <p className="stat-label mt-1">{label}</p>

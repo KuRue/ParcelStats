@@ -1,7 +1,6 @@
 "use client";
 
-import { ReactNode } from "react";
-import { cn } from "@/lib/utils";
+import { cn, formatStatusLabel, getStatusBadgeClass } from "@/lib/utils";
 
 interface TimelineEvent {
   status: string;
@@ -29,27 +28,27 @@ export function TrackingTimeline({ events }: { events: TimelineEvent[] }) {
               )}
             />
           </div>
-          <div className="flex-1 pb-2">
-            <div className="flex items-start justify-between gap-2">
-              <div>
+          <div className="flex-1 min-w-0 pb-2">
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between sm:gap-2">
+              <div className="min-w-0">
                 <p
                   className={cn(
-                    "text-sm font-mono font-medium",
+                    "text-sm font-mono font-medium break-words",
                     event.isLatest ? "text-cyber-green" : "text-cyber-text"
                   )}
                 >
-                  {event.status}
+                  {formatStatusLabel(event.status)}
                 </p>
                 {event.location && (
-                  <p className="text-xs text-cyber-muted">{event.location}</p>
+                  <p className="text-xs text-cyber-muted break-words">{event.location}</p>
                 )}
                 {event.description && (
-                  <p className="text-xs text-cyber-muted mt-1">
+                  <p className="text-xs text-cyber-muted mt-1 break-words">
                     {event.description}
                   </p>
                 )}
               </div>
-              <span className="text-xs text-cyber-muted whitespace-nowrap font-mono">
+              <span className="text-xs text-cyber-muted font-mono sm:whitespace-nowrap">
                 {event.time}
               </span>
             </div>
@@ -93,15 +92,5 @@ export function ConfidenceBar({
 }
 
 export function StatusBadge({ status }: { status: string }) {
-  const s = status.toLowerCase();
-  let cls = "cyber-badge";
-  if (s.includes("deliver") && !s.includes("fail")) cls = "cyber-badge-success";
-  else if (s.includes("exception") || s.includes("fail")) cls = "cyber-badge-danger";
-  else if (s.includes("custom")) cls = "cyber-badge-warning";
-  else if (s.includes("transit") || s.includes("out for delivery"))
-    cls = "cyber-badge-info";
-  else if (s.includes("pending") || s.includes("label"))
-    cls = "cyber-badge";
-
-  return <span className={cls}>{status}</span>;
+  return <span className={getStatusBadgeClass(status)}>{formatStatusLabel(status)}</span>;
 }

@@ -37,11 +37,11 @@ module.exports = {
         grid: "40px 40px",
       },
       boxShadow: {
-        "cyber-glow": "0 0 10px rgba(0,240,255,0.3), 0 0 40px rgba(0,240,255,0.1)",
+        "cyber-glow": "0 0 10px rgba(0,240,255,0.18), 0 0 30px rgba(0,240,255,0.06)",
         "cyber-glow-green":
-          "0 0 10px rgba(57,255,20,0.3), 0 0 40px rgba(57,255,20,0.1)",
+          "0 0 10px rgba(57,255,20,0.16), 0 0 30px rgba(57,255,20,0.05)",
         "cyber-glow-purple":
-          "0 0 10px rgba(191,0,255,0.3), 0 0 40px rgba(191,0,255,0.1)",
+          "0 0 10px rgba(191,0,255,0.16), 0 0 30px rgba(191,0,255,0.05)",
       },
       animation: {
         pulse: "pulse 2s cubic-bezier(0.4,0,0.6,1) infinite",

@@ -1,3 +1,5 @@
+import pytest
+
 from services.scraper.base import BaseCarrierScraper, ScrapedShipment
 
 
@@ -82,6 +84,24 @@ def test_get_api_scrapers():
     assert get_scraper("speedpak") is not None
 
 
+def test_response_json_rejects_non_json_redirects():
+    class S(BaseCarrierScraper):
+        slug = "test"
+        name = "Test Carrier"
+        async def track(self, tracking_number: str) -> ScrapedShipment:
+            pass
+
+    class Response:
+        status_code = 302
+        headers = {"location": "https://example.test/redirect"}
+
+        def json(self):
+            return {}
+
+    with pytest.raises(ValueError, match="HTTP 302"):
+        S().response_json(Response())
+
+
 def test_api_scraper_slugs():
     from services.scraper import _registry
 
@@ -105,10 +125,16 @@ def test_speedpak_parse_waybill():
             "consignmentCountryName": "China",
             "consigneeCityName": "Largo",
             "consigneeCountryName": "UnitedStates",
-            "lastStatus": "Import Customs Clearance Completed",
-            "lastTimestamp": 1780938360000,
+            "lastStatus": "Arrived at Regional Distribution Center",
+            "lastTimestamp": 1781055293000,
             "projectCode": "eBay",
             "traces": [
+                {
+                    "eventDesc": "Arrived at Regional Distribution Center",
+                    "oprCity": "Chicago IL",
+                    "oprCountry": "US",
+                    "oprTimestamp": 1781055293000,
+                },
                 {
                     "eventDesc": "Import Customs Clearance Completed",
                     "oprCountry": "US",
@@ -124,7 +150,7 @@ def test_speedpak_parse_waybill():
         },
     )
 
-    assert shipment.status == "customs"
+    assert shipment.status == "arrived_at_facility"
     assert shipment.service_type == "eBay"
     assert shipment.origin_name == "SHENZHEN, China"
     assert shipment.dest_name == "Largo, UnitedStates"
@@ -132,9 +158,13 @@ def test_speedpak_parse_waybill():
     assert shipment.origin_lng == 114.0579
     assert shipment.dest_lat == 27.9095
     assert shipment.dest_lng == -82.7873
-    assert len(shipment.events) == 2
-    assert shipment.events[0].status == "customs"
-    assert shipment.events[0].location_name == "US"
-    assert shipment.events[0].location_lat == 27.9095
-    assert shipment.events[0].location_lng == -82.7873
+    assert len(shipment.events) == 3
+    assert shipment.events[0].status == "arrived_at_facility"
+    assert shipment.events[0].location_name == "Chicago IL, US"
+    assert shipment.events[0].location_lat == 41.8781
+    assert shipment.events[0].location_lng == -87.6298
+    assert shipment.events[1].status == "customs"
+    assert shipment.events[1].location_name == "US"
+    assert shipment.events[1].location_lat is None
+    assert shipment.events[1].location_lng is None
     assert shipment.shipped_at == shipment.events[-1].event_time

@@ -12,7 +12,7 @@ class USPSPScraper(BaseCarrierScraper):
         status = "pending"
 
         try:
-            async with httpx.Client(timeout=30) as client:
+            async with httpx.AsyncClient(timeout=30) as client:
                 resp = await client.get(
                     "https://tools.usps.com/go/TrackConfirmAction_ajax",
                     params={"tLabels": tracking_number},
@@ -21,7 +21,7 @@ class USPSPScraper(BaseCarrierScraper):
                         "Accept": "application/json",
                     },
                 )
-                data = resp.json()
+                data = self.response_json(resp)
 
                 track_details = data.get("TrackResults", {}).get("TrackInfo", {}).get("TrackDetail", [])
                 if isinstance(track_details, dict):

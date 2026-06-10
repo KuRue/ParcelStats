@@ -46,6 +46,20 @@ class BaseCarrierScraper(ABC):
     async def track(self, tracking_number: str) -> ScrapedShipment:
         pass
 
+    def response_json(self, response):
+        if response.status_code >= 300:
+            location = response.headers.get("location")
+            suffix = f" redirect={location}" if location else ""
+            raise ValueError(f"{self.name} returned HTTP {response.status_code}{suffix}")
+
+        content_type = response.headers.get("content-type", "")
+        if "json" not in content_type.lower():
+            raise ValueError(
+                f"{self.name} returned non-JSON response ({content_type or 'no content type'})"
+            )
+
+        return response.json()
+
     def normalize_status(self, raw_status: str) -> str:
         s = raw_status.lower().strip()
         if any(w in s for w in ["delivered", "delivred", "geliefert"]):

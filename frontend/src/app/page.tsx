@@ -9,7 +9,7 @@ import {
   Zap,
   Globe,
   ArrowRight,
-  Terminal,
+  LogIn,
 } from "lucide-react";
 
 export default async function HomePage() {
@@ -34,7 +34,7 @@ export default async function HomePage() {
               href="/auth/signin"
               className="cyber-btn"
             >
-              <Terminal className="w-4 h-4 mr-2" />
+              <LogIn className="w-4 h-4 mr-2" />
               Sign In
             </Link>
           </nav>
@@ -87,7 +87,7 @@ export default async function HomePage() {
                 <div className="w-12 h-12 rounded-full bg-cyber-cyan/10 border border-cyber-cyan/30 flex items-center justify-center mx-auto mb-4">
                   <Package className="w-6 h-6 text-cyber-cyan" />
                 </div>
-                <h3 className="font-display text-sm uppercase tracking-wider text-cyber-cyan mb-2">
+                <h3 className="font-display text-sm tracking-wide text-cyber-cyan mb-2">
                   01. Track
                 </h3>
                 <p className="text-cyber-muted text-sm">
@@ -100,7 +100,7 @@ export default async function HomePage() {
                 <div className="w-12 h-12 rounded-full bg-cyber-purple/10 border border-cyber-purple/30 flex items-center justify-center mx-auto mb-4">
                   <Zap className="w-6 h-6 text-cyber-purple" />
                 </div>
-                <h3 className="font-display text-sm uppercase tracking-wider text-cyber-purple mb-2">
+                <h3 className="font-display text-sm tracking-wide text-cyber-purple mb-2">
                   02. Predict
                 </h3>
                 <p className="text-cyber-muted text-sm">
@@ -113,7 +113,7 @@ export default async function HomePage() {
                 <div className="w-12 h-12 rounded-full bg-cyber-green/10 border border-cyber-green/30 flex items-center justify-center mx-auto mb-4">
                   <Shield className="w-6 h-6 text-cyber-green" />
                 </div>
-                <h3 className="font-display text-sm uppercase tracking-wider text-cyber-green mb-2">
+                <h3 className="font-display text-sm tracking-wide text-cyber-green mb-2">
                   03. Improve
                 </h3>
                 <p className="text-cyber-muted text-sm">

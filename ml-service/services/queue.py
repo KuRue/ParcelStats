@@ -44,6 +44,7 @@ class JobQueue:
 
     def dequeue(self, timeout: int = 5) -> Optional[dict]:
         now = time.time()
+        now_dt = datetime.utcnow()
 
         all_jobs = self.redis.zrange(self.QUEUE_KEY, 0, -1, withscores=True)
         if not all_jobs:
@@ -52,6 +53,13 @@ class JobQueue:
         for job_data, score in all_jobs:
             job = json.loads(job_data)
             carrier = job.get("carrier_slug", "default")
+            retry_at = job.get("retry_at")
+            if retry_at:
+                try:
+                    if datetime.fromisoformat(retry_at) > now_dt:
+                        continue
+                except ValueError:
+                    pass
 
             rate_limit_key = f"{self.RATE_LIMIT_PREFIX}{carrier}"
             last_request = self.redis.get(rate_limit_key)

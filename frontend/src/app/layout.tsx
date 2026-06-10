@@ -6,8 +6,6 @@ import "@/styles/globals.css";
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
   themeColor: "#00f0ff",
 };
 
@@ -36,7 +34,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className="dark">
-      <body className="min-h-screen bg-cyber-bg bg-grid-pattern bg-grid bg-scan-line">
+      <body className="min-h-screen bg-cyber-bg bg-grid-pattern bg-grid">
         <AuthProvider>
           <div className="relative z-10">{children}</div>
           <MobileNav />

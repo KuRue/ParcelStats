@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { formatStatusLabel } from "@/lib/utils";
 
 interface MapEvent {
   status: string;
@@ -99,6 +100,23 @@ function getStatusColor(status: string): string {
   return "#7a8599";
 }
 
+function eventTimestamp(event: MapEvent): number {
+  const timestamp = new Date(event.eventTime).getTime();
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function addRoutePoint(
+  routeCoords: L.LatLngExpression[],
+  lat: number,
+  lng: number
+) {
+  const last = routeCoords[routeCoords.length - 1] as [number, number] | undefined;
+  if (last && Math.abs(last[0] - lat) < 0.0001 && Math.abs(last[1] - lng) < 0.0001) {
+    return;
+  }
+  routeCoords.push([lat, lng]);
+}
+
 export function ShipmentRouteMap({
   events,
   originLat,
@@ -159,7 +177,7 @@ export function ShipmentRouteMap({
     const points: L.LatLngExpression[] = [];
     const markers: L.Marker[] = [];
 
-    if (originLat && originLng) {
+    if (originLat != null && originLng != null) {
       const originMarker = L.marker([originLat, originLng], {
         icon: createEndpointIcon("O", "#bf00ff"),
       }).addTo(map);
@@ -180,15 +198,17 @@ export function ShipmentRouteMap({
 
     if (geoEvents.length > 0) {
       const routeCoords: L.LatLngExpression[] = [];
+      const routeEvents = [...geoEvents].sort(
+        (a, b) => eventTimestamp(a) - eventTimestamp(b)
+      );
 
-      if (originLat && originLng) {
-        routeCoords.push([originLat, originLng]);
+      if (originLat != null && originLng != null) {
+        addRoutePoint(routeCoords, originLat, originLng);
       }
 
       geoEvents.forEach((event, i) => {
         const lat = event.locationLat!;
         const lng = event.locationLng!;
-        routeCoords.push([lat, lng]);
         points.push([lat, lng]);
 
         const isLatest = i === 0;
@@ -204,7 +224,7 @@ export function ShipmentRouteMap({
 
         marker.bindPopup(
           `<div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#e0e6f0;background:#1a1f2e;padding:10px;border:1px solid #2a3040;border-radius:6px;min-width:180px;">
-            <div style="color:${color};font-weight:bold;margin-bottom:4px;text-transform:uppercase;font-size:10px;letter-spacing:1px;">${event.status}</div>
+            <div style="color:${color};font-weight:bold;margin-bottom:4px;font-size:10px;letter-spacing:1px;">${formatStatusLabel(event.status)}</div>
             ${event.locationName ? `<div style="margin-bottom:4px;">${event.locationName}</div>` : ""}
             ${event.description ? `<div style="color:#7a8599;margin-bottom:4px;">${event.description}</div>` : ""}
             ${time ? `<div style="color:#7a8599;font-size:10px;">${time}</div>` : ""}
@@ -212,6 +232,10 @@ export function ShipmentRouteMap({
           { className: "cyber-popup" }
         );
         markers.push(marker);
+      });
+
+      routeEvents.forEach((event) => {
+        addRoutePoint(routeCoords, event.locationLat!, event.locationLng!);
       });
 
       if (routeCoords.length > 1) {
@@ -231,7 +255,7 @@ export function ShipmentRouteMap({
       }
 
       const lastGeoEvent = geoEvents[0];
-      if (destLat && destLng && status.toLowerCase() !== "delivered") {
+      if (destLat != null && destLng != null && status.toLowerCase() !== "delivered") {
         const predictedLine: L.LatLngExpression[] = [
           [lastGeoEvent.locationLat!, lastGeoEvent.locationLng!],
           [destLat, destLng],
@@ -257,7 +281,7 @@ export function ShipmentRouteMap({
       }
     }
 
-    if (destLat && destLng) {
+    if (destLat != null && destLng != null) {
       const destColor =
         status.toLowerCase() === "delivered" ? "#39ff14" : "#00f0ff";
       const destMarker = L.marker([destLat, destLng], {
@@ -281,7 +305,7 @@ export function ShipmentRouteMap({
 
   return (
     <div className="relative">
-      <div ref={mapRef} className="h-[350px] rounded overflow-hidden" />
+      <div ref={mapRef} className="h-[300px] sm:h-[350px] rounded overflow-hidden" />
       <div className="absolute top-2 left-2 z-[1000] flex flex-col gap-1">
         <div className="flex items-center gap-1 bg-cyber-bg/80 backdrop-blur-sm border border-cyber-border rounded px-2 py-1">
           <div className="w-2 h-2 rounded-full bg-cyber-cyan" />

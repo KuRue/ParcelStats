@@ -70,7 +70,9 @@ class PollScheduler:
                 db.query(Shipment)
                 .filter(
                     Shipment.delivered_at.is_(None),
-                    Shipment.status.notin_(["delivered", "delivery_exception", "error"]),
+                    Shipment.status.notin_(
+                        ["delivered", "delivery_exception", "tracking_exception", "error"]
+                    ),
                     Shipment.updated_at < datetime.utcnow() - timedelta(minutes=30),
                 )
                 .order_by(Shipment.updated_at.asc())
@@ -112,7 +114,7 @@ class PollScheduler:
                 self.queue.enqueue(
                     tracking_number=shipment.tracking_number,
                     carrier_slug=carrier.slug,
-                    shipment_id=shipment.id,
+                    shipment_id=str(shipment.id),
                     priority=1 if shipment.status in ("out_for_delivery", "in_transit") else 0,
                 )
                 enqueued += 1

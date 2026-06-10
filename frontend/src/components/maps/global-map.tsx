@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { formatStatusLabel } from "@/lib/utils";
 
 interface ShipmentMapItem {
   id: string;
@@ -158,7 +159,7 @@ export function GlobalMap({ shipments, onSelect, selectedId }: GlobalMapProps) {
 
         marker.bindPopup(
           `<div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#e0e6f0;background:#1a1f2e;padding:10px;border:1px solid #2a3040;border-radius:6px;min-width:200px;">
-            <div style="color:${color};font-weight:bold;text-transform:uppercase;font-size:10px;letter-spacing:1px;margin-bottom:6px;">${s.status}</div>
+            <div style="color:${color};font-weight:bold;font-size:10px;letter-spacing:1px;margin-bottom:6px;">${formatStatusLabel(s.status)}</div>
             <div style="margin-bottom:4px;">${s.trackingNumber}</div>
             <div style="color:#7a8599;font-size:10px;">${s.carrier.name}</div>
             ${eta}

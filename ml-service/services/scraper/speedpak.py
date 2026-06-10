@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 import httpx
 
 from services.scraper.base import BaseCarrierScraper, ScrapedEvent, ScrapedShipment
-from services.geo import resolve_location, same_country
+from services.geo import normalize_country, resolve_location
 
 
 class SpeedPAKScraper(BaseCarrierScraper):
@@ -101,23 +101,7 @@ class SpeedPAKScraper(BaseCarrierScraper):
             waybill.get("consigneeCityName"),
             waybill.get("consigneeCountryName"),
         )
-        origin_country = waybill.get("consignmentCountryCode") or waybill.get(
-            "consignmentCountryName"
-        )
-        destination_country = waybill.get("consigneeCountryCode") or waybill.get(
-            "consigneeCountryName"
-        )
-
-        events = [
-            self._parse_trace(
-                trace,
-                origin_country=origin_country,
-                destination_country=destination_country,
-                origin_coords=origin_coords,
-                destination_coords=destination_coords,
-            )
-            for trace in traces
-        ]
+        events = [self._parse_trace(trace) for trace in traces]
         events = [event for event in events if event is not None]
 
         raw_status = waybill.get("lastStatus") or ""
@@ -146,10 +130,6 @@ class SpeedPAKScraper(BaseCarrierScraper):
     def _parse_trace(
         self,
         trace: dict,
-        origin_country: str | None = None,
-        destination_country: str | None = None,
-        origin_coords: tuple[float, float] | None = None,
-        destination_coords: tuple[float, float] | None = None,
     ) -> ScrapedEvent | None:
         description = trace.get("eventDesc") or trace.get("eventDescCn") or ""
         event_time = self._parse_timestamp(trace.get("oprTimestamp"))
@@ -161,10 +141,6 @@ class SpeedPAKScraper(BaseCarrierScraper):
         coords = self._resolve_trace_coords(
             city=city,
             country=country,
-            origin_country=origin_country,
-            destination_country=destination_country,
-            origin_coords=origin_coords,
-            destination_coords=destination_coords,
         )
 
         return ScrapedEvent(
@@ -181,15 +157,12 @@ class SpeedPAKScraper(BaseCarrierScraper):
         self,
         city: str | None,
         country: str | None,
-        origin_country: str | None,
-        destination_country: str | None,
-        origin_coords: tuple[float, float] | None,
-        destination_coords: tuple[float, float] | None,
     ) -> tuple[float, float] | None:
-        if not city and destination_coords and same_country(country, destination_country):
-            return destination_coords
-        if not city and origin_coords and same_country(country, origin_country):
-            return origin_coords
+        if not city:
+            country_key = normalize_country(country)
+            if country_key == "hk":
+                return resolve_location(city, country)
+            return None
         return resolve_location(city, country)
 
     def _parse_timestamp(self, value) -> datetime | None:
