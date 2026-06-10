@@ -1,9 +1,8 @@
 import random
 import uuid
 import logging
-import re
 from database.connection import SessionLocal
-from database.models import Shipment, ShipmentEvent, Carrier, ScrapeJob
+from database.models import Shipment, Carrier
 from services.queue import JobQueue
 
 logger = logging.getLogger("parcelstats.campaign")
@@ -157,7 +156,7 @@ def run_campaign(
             for _ in range(per_carrier):
                 tn = gen_func() if gen_func else generate_generic(slug)
                 while tn in seen:
-                    tn = gen(slug)
+                    tn = gen_func() if gen_func else generate_generic(slug)
                 seen.add(tn)
 
                 existing = db.query(Shipment).filter(

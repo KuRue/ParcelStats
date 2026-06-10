@@ -1,7 +1,7 @@
 from sqlalchemy import Column, String, Integer, Boolean, DateTime, Text, Numeric, ForeignKey, JSON
 from sqlalchemy.orm import relationship
 from database.connection import Base
-from datetime import datetime
+from services.timeutil import utcnow
 
 
 class User(Base):
@@ -11,8 +11,8 @@ class User(Base):
     email = Column(String, unique=True, nullable=False)
     name = Column(String, nullable=False)
     avatar_url = Column(String)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
 
 class Carrier(Base):
@@ -25,7 +25,7 @@ class Carrier(Base):
     scrape_available = Column(Boolean, default=False)
     base_url = Column(String)
     tracking_url_template = Column(String)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
 
 
 class Shipment(Base):
@@ -47,8 +47,8 @@ class Shipment(Base):
     delivered_at = Column(DateTime)
     estimated_delivery = Column(DateTime)
     source = Column(String, default="user")
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
     carrier = relationship("Carrier")
     events = relationship("ShipmentEvent", back_populates="shipment", order_by="desc(ShipmentEvent.event_time)")
     predictions_list = relationship("Prediction", back_populates="shipment")
@@ -65,7 +65,7 @@ class ShipmentEvent(Base):
     description = Column(String)
     raw_data = Column(JSON)
     event_time = Column(DateTime, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
     shipment = relationship("Shipment", back_populates="events")
 
 
@@ -79,7 +79,7 @@ class Prediction(Base):
     confidence_pct = Column(Numeric(5, 2))
     model_version = Column(String, nullable=False)
     features = Column(JSON)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
     shipment = relationship("Shipment", back_populates="predictions_list")
 
 
@@ -96,7 +96,7 @@ class CarrierRoute(Base):
     p90_days = Column(Numeric(6, 2))
     sample_count = Column(Integer, default=0)
     route_hops = Column(JSON)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
 
 class ScrapeJob(Base):
@@ -108,8 +108,8 @@ class ScrapeJob(Base):
     status = Column(String, default="pending")
     attempts = Column(Integer, default=0)
     last_error = Column(Text)
-    next_attempt_at = Column(DateTime, default=datetime.utcnow)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    next_attempt_at = Column(DateTime, default=utcnow)
+    created_at = Column(DateTime, default=utcnow)
     completed_at = Column(DateTime)
 
 
@@ -119,5 +119,5 @@ class ModelVersion(Base):
     model_name = Column(String, nullable=False)
     version = Column(String, nullable=False)
     metrics = Column(JSON)
-    trained_at = Column(DateTime, default=datetime.utcnow)
+    trained_at = Column(DateTime, default=utcnow)
     is_active = Column(Boolean, default=False)

@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import uuid
+from collections import deque
 from datetime import datetime
 from typing import Optional
 import redis
@@ -11,12 +12,67 @@ from services.predictor import ETAPredictor
 from services.config import settings
 from database.connection import SessionLocal
 from database.models import Shipment, ShipmentEvent, Carrier, ScrapeJob
+from services.timeutil import utcnow
 
 logger = logging.getLogger("parcelstats.worker")
 
 POLL_INTERVAL = 5
 BATCH_SIZE = 5
 CONCURRENT_SCRAPE_LIMIT = 3
+
+HEALTH_WINDOW = 50
+HEALTH_MIN_SAMPLES = 10
+HEALTH_WARN_RATE = 0.5
+
+
+class ScraperHealth:
+    """Rolling per-carrier success metrics for scrape jobs."""
+
+    def __init__(self):
+        self._outcomes: dict[str, deque] = {}
+        self._last_success: dict[str, datetime] = {}
+        self._last_error: dict[str, str] = {}
+        self._warned: set[str] = set()
+
+    def record(self, carrier_slug: str, success: bool, error: str | None = None):
+        window = self._outcomes.setdefault(carrier_slug, deque(maxlen=HEALTH_WINDOW))
+        window.append(success)
+        if success:
+            self._last_success[carrier_slug] = utcnow()
+        elif error:
+            self._last_error[carrier_slug] = error[:200]
+
+        rate = self.success_rate(carrier_slug)
+        if rate is not None and rate < HEALTH_WARN_RATE:
+            if carrier_slug not in self._warned:
+                self._warned.add(carrier_slug)
+                logger.warning(
+                    f"Scraper health degraded for {carrier_slug}: "
+                    f"{rate:.0%} success over last {len(window)} jobs "
+                    f"(last error: {self._last_error.get(carrier_slug)})"
+                )
+        else:
+            self._warned.discard(carrier_slug)
+
+    def success_rate(self, carrier_slug: str) -> float | None:
+        window = self._outcomes.get(carrier_slug)
+        if not window or len(window) < HEALTH_MIN_SAMPLES:
+            return None
+        return sum(window) / len(window)
+
+    def get_stats(self) -> dict:
+        stats = {}
+        for slug, window in self._outcomes.items():
+            rate = self.success_rate(slug)
+            last_success = self._last_success.get(slug)
+            stats[slug] = {
+                "jobs_in_window": len(window),
+                "success_rate": round(rate, 3) if rate is not None else None,
+                "degraded": rate is not None and rate < HEALTH_WARN_RATE,
+                "last_success": last_success.isoformat() if last_success else None,
+                "last_error": self._last_error.get(slug),
+            }
+        return stats
 
 
 class ScrapeWorker:
@@ -26,17 +82,18 @@ class ScrapeWorker:
         self.running = False
         self._task: Optional[asyncio.Task] = None
         self._semaphore = asyncio.Semaphore(CONCURRENT_SCRAPE_LIMIT)
-        self._last_cleared = datetime.utcnow()
+        self._last_cleared = utcnow()
         self._processed = 0
         self._failed = 0
         self._started_at: Optional[datetime] = None
         self._redis_pub = redis.from_url(settings.redis_url, decode_responses=True)
+        self.health = ScraperHealth()
 
     async def start(self):
         if self.running:
             return
         self.running = True
-        self._started_at = datetime.utcnow()
+        self._started_at = utcnow()
         self._task = asyncio.create_task(self._run_loop())
         logger.info("Scrape worker started")
 
@@ -60,7 +117,7 @@ class ScrapeWorker:
             await asyncio.sleep(POLL_INTERVAL)
 
     async def _process_batch(self):
-        now = datetime.utcnow()
+        now = utcnow()
         if (now - self._last_cleared).total_seconds() > 300:
             self.queue.clear_stale_processing()
             self._last_cleared = now
@@ -184,7 +241,7 @@ class ScrapeWorker:
                                 location_lat=event.location_lat,
                                 location_lng=event.location_lng,
                                 description=event.description,
-                                event_time=event.event_time or datetime.utcnow(),
+                                event_time=event.event_time or utcnow(),
                                 raw_data=event.raw_data,
                             )
                         )
@@ -211,7 +268,7 @@ class ScrapeWorker:
                     logger.warning(f"Prediction failed for {shipment_id}: {e}")
 
                 scrape_job.status = "completed"
-                scrape_job.completed_at = datetime.utcnow()
+                scrape_job.completed_at = utcnow()
                 db.commit()
 
                 self._publish_event(
@@ -224,6 +281,7 @@ class ScrapeWorker:
                 )
 
                 self._processed += 1
+                self.health.record(carrier_slug, success=True)
                 logger.info(f"Completed {carrier_slug}:{tracking_number}")
 
                 if result.status == "delivered":
@@ -231,6 +289,7 @@ class ScrapeWorker:
 
             except Exception as e:
                 self._failed += 1
+                self.health.record(carrier_slug, success=False, error=str(e))
                 logger.error(
                     f"Failed {carrier_slug}:{tracking_number}: {e}"
                 )
@@ -250,7 +309,7 @@ class ScrapeWorker:
                     if not requeued:
                         if shipment:
                             shipment.status = "tracking_exception"
-                            shipment.updated_at = datetime.utcnow()
+                            shipment.updated_at = utcnow()
                         logger.warning(
                             f"Max retries reached for {carrier_slug}:{tracking_number}"
                         )
@@ -273,7 +332,7 @@ class ScrapeWorker:
             "status": status,
             "user_id": str(user_id) if user_id else None,
             "data": data,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": utcnow().isoformat(),
         }
         try:
             self._redis_pub.publish("parcelstats:global", json.dumps(event))
@@ -294,12 +353,13 @@ class ScrapeWorker:
             "processing": queue_stats["processing"],
             "started_at": self._started_at.isoformat() if self._started_at else None,
             "uptime_seconds": (
-                (datetime.utcnow() - self._started_at).total_seconds()
+                (utcnow() - self._started_at).total_seconds()
                 if self._started_at
                 else 0
             ),
             "concurrent_limit": CONCURRENT_SCRAPE_LIMIT,
             "poll_interval": POLL_INTERVAL,
+            "scraper_health": self.health.get_stats(),
         }
 
     def _check_retrain(self):

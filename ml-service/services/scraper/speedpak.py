@@ -4,6 +4,7 @@ import httpx
 
 from services.scraper.base import BaseCarrierScraper, ScrapedEvent, ScrapedShipment
 from services.geo import normalize_country, resolve_location
+from services.timeutil import utcnow
 
 
 class SpeedPAKScraper(BaseCarrierScraper):
@@ -66,7 +67,7 @@ class SpeedPAKScraper(BaseCarrierScraper):
                     ScrapedEvent(
                         status="not_found",
                         description="Tracking number not found by Orange Connex",
-                        event_time=datetime.utcnow(),
+                        event_time=utcnow(),
                         raw_data=data,
                     )
                 ],

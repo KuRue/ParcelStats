@@ -1,10 +1,11 @@
 import random
 import uuid
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from database.connection import SessionLocal
 from database.models import Shipment, ShipmentEvent, Carrier, CarrierRoute
 import numpy as np
+from services.timeutil import utcnow
 
 logger = logging.getLogger("parcelstats.seed")
 
@@ -178,7 +179,7 @@ def generate_synthetic_shipments(count: int = 2000) -> dict:
             duration_days = max(transit_info["min"], min(transit_info["max"], np.random.normal(mean_days, transit_info["std"] * 0.5)))
             duration_days = round(duration_days, 1)
 
-            shipped_at = datetime.utcnow() - timedelta(days=random.randint(30, 365))
+            shipped_at = utcnow() - timedelta(days=random.randint(30, 365))
             delivered_at = shipped_at + timedelta(days=duration_days)
 
             num_events = random.randint(3, 8)
@@ -318,7 +319,7 @@ def _update_carrier_routes(db):
             existing.p10_days = float(np.percentile(arr, 10))
             existing.p90_days = float(np.percentile(arr, 90))
             existing.sample_count = len(arr)
-            existing.updated_at = datetime.utcnow()
+            existing.updated_at = utcnow()
         else:
             db.add(CarrierRoute(
                 id=str(uuid.uuid4()),

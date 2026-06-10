@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 import redis
 from services.config import settings
+from services.timeutil import utcnow
 
 
 class JobQueue:
@@ -35,7 +36,7 @@ class JobQueue:
             "carrier_slug": carrier_slug,
             "shipment_id": shipment_id,
             "attempts": 0,
-            "enqueued_at": datetime.utcnow().isoformat(),
+            "enqueued_at": utcnow().isoformat(),
             "priority": priority,
         }
         job_data = json.dumps(job)
@@ -44,7 +45,7 @@ class JobQueue:
 
     def dequeue(self, timeout: int = 5) -> Optional[dict]:
         now = time.time()
-        now_dt = datetime.utcnow()
+        now_dt = utcnow()
 
         all_jobs = self.redis.zrange(self.QUEUE_KEY, 0, -1, withscores=True)
         if not all_jobs:
@@ -83,7 +84,7 @@ class JobQueue:
             return False
 
         delay = self.RETRY_DELAYS[min(attempts - 1, len(self.RETRY_DELAYS) - 1)]
-        retry_at = datetime.utcnow() + timedelta(seconds=delay)
+        retry_at = utcnow() + timedelta(seconds=delay)
 
         job["last_error"] = error
         job["retry_at"] = retry_at.isoformat()

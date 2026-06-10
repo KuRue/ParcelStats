@@ -50,6 +50,34 @@ async def predict_eta(req: ETAPredictionRequest):
     return {"status": "ok", "prediction": result}
 
 
+@router.get("/accuracy")
+async def prediction_accuracy():
+    from database.connection import SessionLocal
+    from database.models import Prediction, Shipment, Carrier
+    from services.accuracy import summarize_accuracy
+
+    db = SessionLocal()
+    try:
+        rows = (
+            db.query(
+                Prediction.shipment_id,
+                Carrier.slug,
+                Prediction.model_version,
+                Prediction.created_at,
+                Prediction.predicted_delivery,
+                Shipment.delivered_at,
+            )
+            .join(Shipment, Prediction.shipment_id == Shipment.id)
+            .join(Carrier, Shipment.carrier_id == Carrier.id)
+            .filter(Shipment.delivered_at.isnot(None))
+            .all()
+        )
+    finally:
+        db.close()
+
+    return {"status": "ok", "accuracy": summarize_accuracy(rows)}
+
+
 @router.post("/route")
 async def predict_route(req: RoutePredictionRequest):
     return {

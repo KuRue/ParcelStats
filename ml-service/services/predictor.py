@@ -2,10 +2,11 @@ import os
 import joblib
 import pandas as pd
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from database.connection import SessionLocal
 from database.models import Shipment, Prediction, CarrierRoute, ModelVersion, Carrier
 from services.config import settings
+from services.timeutil import utcnow, to_naive_utc, parse_to_naive_utc
 
 
 class ETAPredictor:
@@ -51,19 +52,27 @@ class ETAPredictor:
         if not self.is_ready:
             return None
 
-        ref_date = shipped_at or datetime.utcnow()
+        ref_date = shipped_at or utcnow()
+
+        encoded = {
+            "carrier_slug": self._encode("carrier_slug", carrier_slug),
+            "origin_region": self._encode("origin_region", origin_region.lower()),
+            "dest_region": self._encode("dest_region", dest_region.lower()),
+            "service_type": self._encode("service_type", service_type),
+        }
+        # The model has never seen this carrier or lane, so its output would be
+        # meaningless - bail out and let the fallback chain handle it.
+        if encoded["carrier_slug"] == -1:
+            return None
+        if encoded["origin_region"] == -1 and encoded["dest_region"] == -1:
+            return None
+        unknown_count = sum(1 for v in encoded.values() if v == -1)
 
         features = self.metadata["features"]
         row = {}
         for f in features:
-            if f == "carrier_slug":
-                row[f] = self._encode("carrier_slug", carrier_slug)
-            elif f == "origin_region":
-                row[f] = self._encode("origin_region", origin_region.lower())
-            elif f == "dest_region":
-                row[f] = self._encode("dest_region", dest_region.lower())
-            elif f == "service_type":
-                row[f] = self._encode("service_type", service_type)
+            if f in encoded:
+                row[f] = encoded[f]
             elif f == "weight_kg":
                 row[f] = weight_kg
             elif f == "shipped_month":
@@ -84,6 +93,10 @@ class ETAPredictor:
         confidence_low = ref_date + timedelta(days=p10_days)
         confidence_high = ref_date + timedelta(days=p90_days)
         confidence_pct = self._calculate_confidence(median_days, p10_days, p90_days)
+        # Partially-unseen inputs (e.g. unknown service type or one region)
+        # still predict, but with reduced confidence.
+        if unknown_count:
+            confidence_pct = min(confidence_pct, 60.0 - 10.0 * (unknown_count - 1))
 
         return {
             "predicted_delivery": predicted_delivery.isoformat(),
@@ -189,7 +202,7 @@ class ETAPredictor:
             if not route:
                 return None
 
-            ref = self._naive_utc(ref_date) or datetime.utcnow()
+            ref = self._naive_utc(ref_date) or utcnow()
             return {
                 "predicted_delivery": (ref + timedelta(days=float(route.median_days))).isoformat(),
                 "confidence_low": (ref + timedelta(days=float(route.p10_days))).isoformat(),
@@ -230,10 +243,10 @@ class ETAPredictor:
         }
 
     def _baseline_estimate(self, shipment: Shipment, carrier_slug: str) -> dict:
-        ref = self._naive_utc(shipment.shipped_at) or datetime.utcnow()
+        ref = self._naive_utc(shipment.shipped_at) or utcnow()
         median_days = self._baseline_days(carrier_slug, shipment.origin_name, shipment.dest_name)
         predicted = ref + timedelta(days=median_days)
-        minimum_prediction = datetime.utcnow() + timedelta(days=1)
+        minimum_prediction = utcnow() + timedelta(days=1)
         if predicted < minimum_prediction:
             predicted = minimum_prediction
 
@@ -279,15 +292,7 @@ class ETAPredictor:
         )
 
     def _to_datetime(self, value):
-        if value is None or isinstance(value, datetime):
-            return self._naive_utc(value)
-        if isinstance(value, str):
-            return datetime.fromisoformat(value.replace("Z", "+00:00")).replace(tzinfo=None)
-        return value
+        return parse_to_naive_utc(value)
 
     def _naive_utc(self, value: datetime | None) -> datetime | None:
-        if value is None:
-            return None
-        if value.tzinfo is None:
-            return value
-        return value.astimezone(timezone.utc).replace(tzinfo=None)
+        return to_naive_utc(value)

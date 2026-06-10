@@ -1,4 +1,3 @@
-import json
 import httpx
 from datetime import datetime
 from services.scraper.base import (

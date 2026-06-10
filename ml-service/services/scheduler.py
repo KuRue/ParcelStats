@@ -6,6 +6,7 @@ from services.config import settings
 from services.queue import JobQueue
 from database.connection import SessionLocal
 from database.models import Shipment, Carrier, ScrapeJob
+from services.timeutil import utcnow
 
 logger = logging.getLogger("parcelstats.scheduler")
 
@@ -39,12 +40,15 @@ class PollScheduler:
         self._polls_done = 0
         self._jobs_enqueued = 0
         self._started_at: Optional[datetime] = None
+        # shipment_id -> last sweep time; prevents re-enqueueing an orphaned
+        # shipment every cycle while its job is still waiting in Redis
+        self._swept: dict[str, datetime] = {}
 
     async def start(self):
         if self.running:
             return
         self.running = True
-        self._started_at = datetime.utcnow()
+        self._started_at = utcnow()
         self._task = asyncio.create_task(self._run_loop())
         logger.info(
             f"Poll scheduler started (check every {settings.poll_check_interval}s, "
@@ -71,17 +75,19 @@ class PollScheduler:
             await asyncio.sleep(settings.poll_check_interval)
 
     async def _poll_cycle(self):
-        self._last_poll = datetime.utcnow()
+        self._last_poll = utcnow()
         self._polls_done += 1
 
         db = SessionLocal()
         try:
+            self._sweep_orphaned_pending(db)
+
             active_shipments = (
                 db.query(Shipment)
                 .filter(
                     Shipment.delivered_at.is_(None),
                     Shipment.status.notin_(NON_POLLABLE_STATUSES),
-                    Shipment.updated_at < datetime.utcnow() - timedelta(minutes=30),
+                    Shipment.updated_at < utcnow() - timedelta(minutes=30),
                 )
                 .order_by(Shipment.updated_at.asc())
                 .limit(settings.poll_max_shipments)
@@ -92,7 +98,7 @@ class PollScheduler:
                 return
 
             enqueued = 0
-            now = datetime.utcnow()
+            now = utcnow()
 
             for shipment in active_shipments:
                 interval = self._get_interval(shipment.status)
@@ -134,6 +140,56 @@ class PollScheduler:
         finally:
             db.close()
 
+    def _sweep_orphaned_pending(self, db):
+        """Pick up shipments whose initial scrape trigger never landed.
+
+        When the ML service is down at creation time, the frontend's
+        fire-and-forget /scrape/trigger call is lost and the shipment sits in
+        'pending' with no scrape job. The main poll loop only considers
+        shipments older than 30 minutes, so sweep these up right away.
+        """
+        orphans = (
+            db.query(Shipment)
+            .filter(
+                Shipment.status == "pending",
+                Shipment.created_at > utcnow() - timedelta(days=2),
+                ~db.query(ScrapeJob.id)
+                .filter(ScrapeJob.tracking_number == Shipment.tracking_number)
+                .exists(),
+            )
+            .limit(settings.poll_max_shipments)
+            .all()
+        )
+
+        now = utcnow()
+        self._swept = {
+            sid: t for sid, t in self._swept.items()
+            if now - t < timedelta(hours=1)
+        }
+
+        enqueued = 0
+        for shipment in orphans:
+            sid = str(shipment.id)
+            if sid in self._swept:
+                continue
+            carrier = (
+                db.query(Carrier).filter(Carrier.id == shipment.carrier_id).first()
+            )
+            if not carrier:
+                continue
+            self._swept[sid] = now
+            self.queue.enqueue(
+                tracking_number=shipment.tracking_number,
+                carrier_slug=carrier.slug,
+                shipment_id=str(shipment.id),
+                priority=1,
+            )
+            enqueued += 1
+
+        if enqueued:
+            self._jobs_enqueued += enqueued
+            logger.info(f"Swept {enqueued} pending shipments with no scrape job")
+
     def _get_interval(self, status: str) -> int:
         status_lower = status.lower().replace(" ", "_")
         setting_name = STATUS_INTERVALS.get(status_lower)
@@ -149,7 +205,7 @@ class PollScheduler:
             "last_poll": self._last_poll.isoformat() if self._last_poll else None,
             "started_at": self._started_at.isoformat() if self._started_at else None,
             "uptime_seconds": (
-                (datetime.utcnow() - self._started_at).total_seconds()
+                (utcnow() - self._started_at).total_seconds()
                 if self._started_at
                 else 0
             ),

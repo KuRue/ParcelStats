@@ -1,7 +1,6 @@
 from services.config import settings
 from database.models import Shipment, CarrierRoute, ModelVersion, Carrier
 from database.connection import SessionLocal
-from datetime import datetime
 import numpy as np
 import pandas as pd
 import joblib
@@ -9,6 +8,7 @@ import os
 import uuid
 from sklearn.model_selection import cross_val_score
 from xgboost import XGBRegressor
+from services.timeutil import utcnow
 
 
 class ModelTrainer:
@@ -87,7 +87,7 @@ class ModelTrainer:
 
             scores = cross_val_score(model_median, X, y, cv=min(5, len(rows) // 2), scoring="neg_mean_absolute_error")
 
-            version = f"v{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+            version = f"v{utcnow().strftime('%Y%m%d%H%M%S')}"
             artifact_path = os.path.join(self.model_path, version)
             os.makedirs(artifact_path, exist_ok=True)
 
@@ -168,7 +168,7 @@ class ModelTrainer:
                 existing.p10_days = float(np.percentile(arr, 10))
                 existing.p90_days = float(np.percentile(arr, 90))
                 existing.sample_count = len(arr)
-                existing.updated_at = datetime.utcnow()
+                existing.updated_at = utcnow()
             else:
                 db.add(CarrierRoute(
                     id=str(uuid.uuid4()),
