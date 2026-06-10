@@ -212,3 +212,39 @@ body {
 .leaflet-control-attribution a {
   color: #7a8599 !important;
 }
+
+@layer responsive {
+  @media (max-width: 768px) {
+    .cyber-card {
+      padding: 0.75rem;
+    }
+
+    .cyber-btn {
+      padding: 0.5rem 0.75rem;
+      font-size: 0.75rem;
+    }
+
+    .stat-value {
+      font-size: 1.25rem;
+    }
+
+    select.cyber-input,
+    input.cyber-input {
+      font-size: 16px;
+      min-height: 44px;
+    }
+  }
+
+  body {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+@supports (padding: env(safe-area-inset-bottom)) {
+  body {
+    padding-bottom: calc(env(safe-area-inset-bottom) + 3.5rem);
+  }
+}

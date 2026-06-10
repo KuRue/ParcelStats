@@ -135,7 +135,7 @@ export function DashboardContent({ userId }: { userId: string }) {
   );
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8">
+    <div className="max-w-7xl mx-auto px-4 py-6 md:py-8 pb-24 md:pb-8">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="font-display text-2xl text-cyber-text">Dashboard</h1>
@@ -238,7 +238,7 @@ export function DashboardContent({ userId }: { userId: string }) {
 
       {viewMode === "split" && hasMapData && !loading && (
         <CyberCard terminal title="map://global" glow="cyan" className="mb-6">
-          <div className="h-[400px] -m-4 mt-0">
+          <div className="h-[280px] md:h-[400px] -m-4 mt-0">
             <GlobalMap
               shipments={trackings}
               onSelect={(id) => setSelectedShipment(id === selectedShipment ? null : id)}
