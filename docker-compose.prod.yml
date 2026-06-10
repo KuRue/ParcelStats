@@ -1,0 +1,103 @@
+version: "3.8"
+
+# Production compose: pulls prebuilt images from GHCR instead of building.
+# Usage: docker compose -f docker-compose.prod.yml up -d
+
+services:
+  frontend:
+    image: ghcr.io/kurue/parcelstats-frontend:latest
+    container_name: parcelstats-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=postgresql://parcelstats:${DB_PASSWORD:-parcelstats}@postgres:5432/parcelstats
+      - REDIS_URL=redis://redis:6379
+      - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:3000}
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-change-me-in-production}
+      - ML_SERVICE_URL=http://ml-service:8000
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY:-}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+      - ADMIN_EMAILS=${ADMIN_EMAILS:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - parcelstats
+
+  ml-service:
+    image: ghcr.io/kurue/parcelstats-ml-service:latest
+    container_name: parcelstats-ml
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql://parcelstats:${DB_PASSWORD:-parcelstats}@postgres:5432/parcelstats
+      - REDIS_URL=redis://redis:6379
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY:-}
+      - SCRAPE_HEADLESS=true
+      - MODEL_RETRAIN_SCHEDULE=${MODEL_RETRAIN_SCHEDULE:-0 3 * * 0}
+      - USPS_WEB_TOOLS_USER_ID=${USPS_WEB_TOOLS_USER_ID:-}
+      - UPS_CLIENT_ID=${UPS_CLIENT_ID:-}
+      - UPS_CLIENT_SECRET=${UPS_CLIENT_SECRET:-}
+      - UPS_MERCHANT_ID=${UPS_MERCHANT_ID:-}
+      - UPS_BASE_URL=${UPS_BASE_URL:-https://onlinetools.ups.com}
+      - UPS_TRANSACTION_SRC=${UPS_TRANSACTION_SRC:-ParcelStats}
+      - FEDEX_CLIENT_ID=${FEDEX_CLIENT_ID:-}
+      - FEDEX_CLIENT_SECRET=${FEDEX_CLIENT_SECRET:-}
+      - FEDEX_BASE_URL=${FEDEX_BASE_URL:-https://apis.fedex.com}
+      - FEDEX_LOCALE=${FEDEX_LOCALE:-en_US}
+    volumes:
+      - ml-models:/app/models
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - parcelstats
+
+  postgres:
+    image: timescale/timescaledb:latest-pg16
+    container_name: parcelstats-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=parcelstats
+      - POSTGRES_USER=parcelstats
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-parcelstats}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./database/seed/02-carriers.sql:/docker-entrypoint-initdb.d/02-carriers.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U parcelstats"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - parcelstats
+
+  redis:
+    image: redis:7-alpine
+    container_name: parcelstats-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - parcelstats
+
+volumes:
+  postgres-data:
+  redis-data:
+  ml-models:
+
+networks:
+  parcelstats:
+    driver: bridge

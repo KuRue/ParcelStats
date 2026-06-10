@@ -103,6 +103,23 @@ ParcelStats is designed to run as a Docker stack on Unraid:
 3. Copy and edit `.env` as described above
 4. In the Unraid UI, go to the Compose tab and deploy
 
+### Prebuilt images (no building on the server)
+
+Every push to `main` publishes images to GHCR
+(`ghcr.io/kurue/parcelstats-frontend`, `ghcr.io/kurue/parcelstats-ml-service`).
+Use [docker-compose.prod.yml](docker-compose.prod.yml) to pull them instead
+of building locally:
+
+```bash
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d
+```
+
+The repo checkout is still needed for the compose file and the
+`database/*.sql` init scripts, but no Node/Python build happens on the
+server. If the GHCR packages are private, run
+`docker login ghcr.io` with a GitHub token (read:packages) first.
+
 All data persists in Docker volumes. Back up the `postgres-data` volume regularly.
 
 ### Production checklist (e.g. ps.kurue.com)
