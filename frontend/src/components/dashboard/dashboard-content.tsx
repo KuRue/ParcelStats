@@ -4,8 +4,9 @@ import { useState, useEffect, useCallback } from "react";
 import { CyberCard, StatCard } from "@/components/ui/cyber-card";
 import { TrackingCard } from "@/components/tracking/tracking-card";
 import { Navbar } from "@/components/ui/navbar";
-import { Plus, Search, Activity, Package, Brain, Loader2, Wifi, WifiOff } from "lucide-react";
+import { Plus, Search, Activity, Package, Brain, Loader2, Wifi, WifiOff, Map, List } from "lucide-react";
 import { useEventStream } from "@/hooks/use-event-stream";
+import GlobalMap from "@/components/maps/global-map-dynamic";
 
 interface Tracking {
   id: string;
@@ -16,6 +17,14 @@ interface Tracking {
   confidencePct: number | null;
   lastEvent: string | null;
   lastLocation: string | null;
+  lastLat: string | null;
+  lastLng: string | null;
+  originName: string | null;
+  originLat: string | null;
+  originLng: string | null;
+  destName: string | null;
+  destLat: string | null;
+  destLng: string | null;
   updatedAt: string;
 }
 
@@ -27,6 +36,8 @@ export function DashboardContent({ userId }: { userId: string }) {
   const [adding, setAdding] = useState(false);
   const [carriers, setCarriers] = useState<{ name: string; slug: string }[]>([]);
   const [filter, setFilter] = useState("all");
+  const [viewMode, setViewMode] = useState<"split" | "list">("split");
+  const [selectedShipment, setSelectedShipment] = useState<string | null>(null);
 
   const handleStatusChange = useCallback((shipmentId: string, newStatus: string) => {
     setTrackings((prev) =>
@@ -119,43 +130,75 @@ export function DashboardContent({ userId }: { userId: string }) {
         : 0,
   };
 
+  const hasMapData = trackings.some(
+    (t) => (t.lastLat && t.lastLng) || (t.originLat && t.originLng)
+  );
+
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="font-display text-2xl text-cyber-text">Dashboard</h1>
           <p className="text-sm text-cyber-muted font-mono mt-1">
             Your tracked shipments
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          {sseConnected ? (
-            <>
-              <Wifi className="w-4 h-4 text-cyber-green" />
-              <span className="text-xs text-cyber-green font-mono">LIVE</span>
-              {updateCount > 0 && (
-                <span className="text-[10px] text-cyber-muted font-mono">
-                  ({updateCount} updates)
-                </span>
-              )}
-            </>
-          ) : (
-            <>
-              <WifiOff className="w-4 h-4 text-cyber-muted" />
-              <span className="text-xs text-cyber-muted font-mono">OFFLINE</span>
-            </>
+        <div className="flex items-center gap-3">
+          {hasMapData && (
+            <div className="flex items-center border border-cyber-border rounded overflow-hidden">
+              <button
+                onClick={() => setViewMode("split")}
+                className={`p-1.5 transition-colors ${
+                  viewMode === "split"
+                    ? "bg-cyber-cyan/10 text-cyber-cyan"
+                    : "text-cyber-muted hover:text-cyber-text"
+                }`}
+                title="Map + List"
+              >
+                <Map className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setViewMode("list")}
+                className={`p-1.5 transition-colors ${
+                  viewMode === "list"
+                    ? "bg-cyber-cyan/10 text-cyber-cyan"
+                    : "text-cyber-muted hover:text-cyber-text"
+                }`}
+                title="List only"
+              >
+                <List className="w-4 h-4" />
+              </button>
+            </div>
           )}
+          <div className="flex items-center gap-2">
+            {sseConnected ? (
+              <>
+                <Wifi className="w-4 h-4 text-cyber-green" />
+                <span className="text-xs text-cyber-green font-mono">LIVE</span>
+                {updateCount > 0 && (
+                  <span className="text-[10px] text-cyber-muted font-mono">
+                    ({updateCount} updates)
+                  </span>
+                )}
+              </>
+            ) : (
+              <>
+                <WifiOff className="w-4 h-4 text-cyber-muted" />
+                <span className="text-xs text-cyber-muted font-mono">OFFLINE</span>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         <StatCard label="Total Tracked" value={stats.total} color="cyan" />
         <StatCard label="Active" value={stats.active} color="purple" />
         <StatCard label="Delivered" value={stats.delivered} color="green" />
         <StatCard label="Avg Confidence" value={`${stats.avgConfidence}%`} color="yellow" />
       </div>
 
-      <CyberCard terminal title="parcelstats://add-tracking" className="mb-8">
+      <CyberCard terminal title="parcelstats://add-tracking" className="mb-6">
         <form onSubmit={handleAddTracking} className="flex flex-col sm:flex-row gap-3">
           <div className="flex-1">
             <input
@@ -192,6 +235,18 @@ export function DashboardContent({ userId }: { userId: string }) {
           </button>
         </form>
       </CyberCard>
+
+      {viewMode === "split" && hasMapData && !loading && (
+        <CyberCard terminal title="map://global" glow="cyan" className="mb-6">
+          <div className="h-[400px] -m-4 mt-0">
+            <GlobalMap
+              shipments={trackings}
+              onSelect={(id) => setSelectedShipment(id === selectedShipment ? null : id)}
+              selectedId={selectedShipment}
+            />
+          </div>
+        </CyberCard>
+      )}
 
       <div className="flex items-center gap-2 mb-4">
         {["all", "active", "delivered", "issues"].map((f) => (

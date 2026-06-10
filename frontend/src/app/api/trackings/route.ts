@@ -17,6 +17,12 @@ export async function GET() {
       status: shipments.status,
       estimatedDelivery: shipments.estimatedDelivery,
       updatedAt: shipments.updatedAt,
+      originName: shipments.originName,
+      originLat: shipments.originLat,
+      originLng: shipments.originLng,
+      destName: shipments.destName,
+      destLat: shipments.destLat,
+      destLng: shipments.destLng,
       carrier: {
         name: carriers.name,
         slug: carriers.slug,
@@ -33,6 +39,8 @@ export async function GET() {
         .select({
           description: shipmentEvents.description,
           locationName: shipmentEvents.locationName,
+          locationLat: shipmentEvents.locationLat,
+          locationLng: shipmentEvents.locationLng,
         })
         .from(shipmentEvents)
         .where(eq(shipmentEvents.shipmentId, s.id))
@@ -52,6 +60,8 @@ export async function GET() {
         ...s,
         lastEvent: lastEvent?.description || null,
         lastLocation: lastEvent?.locationName || null,
+        lastLat: lastEvent?.locationLat || null,
+        lastLng: lastEvent?.locationLng || null,
         confidencePct: prediction?.confidencePct ? parseFloat(prediction.confidencePct) : null,
       };
     })
