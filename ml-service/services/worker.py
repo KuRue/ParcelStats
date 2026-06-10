@@ -1,0 +1,231 @@
+import asyncio
+import logging
+from datetime import datetime
+from typing import Optional
+from services.queue import JobQueue
+from services.scraper import get_scraper
+from services.predictor import ETAPredictor
+from database.connection import SessionLocal
+from database.models import Shipment, ShipmentEvent, Carrier, ScrapeJob
+
+logger = logging.getLogger("parcelstats.worker")
+
+POLL_INTERVAL = 5
+BATCH_SIZE = 5
+CONCURRENT_SCRAPE_LIMIT = 3
+
+
+class ScrapeWorker:
+    def __init__(self):
+        self.queue = JobQueue()
+        self.predictor = ETAPredictor()
+        self.running = False
+        self._task: Optional[asyncio.Task] = None
+        self._semaphore = asyncio.Semaphore(CONCURRENT_SCRAPE_LIMIT)
+        self._last_cleared = datetime.utcnow()
+        self._processed = 0
+        self._failed = 0
+        self._started_at: Optional[datetime] = None
+
+    async def start(self):
+        if self.running:
+            return
+        self.running = True
+        self._started_at = datetime.utcnow()
+        self._task = asyncio.create_task(self._run_loop())
+        logger.info("Scrape worker started")
+
+    async def stop(self):
+        self.running = False
+        if self._task:
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+        logger.info("Scrape worker stopped")
+
+    async def _run_loop(self):
+        while self.running:
+            try:
+                await self._process_batch()
+            except Exception as e:
+                logger.error(f"Worker batch error: {e}")
+
+            await asyncio.sleep(POLL_INTERVAL)
+
+    async def _process_batch(self):
+        now = datetime.utcnow()
+        if (now - self._last_cleared).total_seconds() > 300:
+            self.queue.clear_stale_processing()
+            self._last_cleared = now
+
+        tasks = []
+        for _ in range(BATCH_SIZE):
+            job = self.queue.dequeue()
+            if not job:
+                break
+
+            tasks.append(self._process_job(job))
+
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def _process_job(self, job: dict):
+        async with self._semaphore:
+            tracking_number = job["tracking_number"]
+            carrier_slug = job["carrier_slug"]
+            shipment_id = job["shipment_id"]
+            attempts = job.get("attempts", 1)
+
+            logger.info(
+                f"Processing {carrier_slug}:{tracking_number} (attempt {attempts})"
+            )
+
+            db = SessionLocal()
+            try:
+                shipment = (
+                    db.query(Shipment).filter(Shipment.id == shipment_id).first()
+                )
+                if not shipment:
+                    logger.warning(f"Shipment {shipment_id} not found, skipping")
+                    return
+
+                carrier = (
+                    db.query(Carrier)
+                    .filter(Carrier.slug == carrier_slug)
+                    .first()
+                )
+                if not carrier:
+                    logger.warning(f"Carrier {carrier_slug} not found, skipping")
+                    return
+
+                scrape_job = ScrapeJob(
+                    shipment_id=shipment_id,
+                    carrier_id=carrier.id,
+                    tracking_number=tracking_number,
+                    status="running",
+                    attempts=attempts,
+                )
+                db.add(scrape_job)
+                db.commit()
+
+                scraper = get_scraper(carrier_slug)
+                if not scraper:
+                    raise ValueError(f"No scraper for carrier: {carrier_slug}")
+
+                result = await scraper.track(tracking_number)
+
+                if result.status == "error":
+                    error_msg = (
+                        result.events[0].description if result.events else "Unknown error"
+                    )
+                    raise RuntimeError(error_msg)
+
+                shipment.status = result.status
+                if result.service_type:
+                    shipment.service_type = result.service_type
+                if result.origin_name:
+                    shipment.origin_name = result.origin_name
+                if result.origin_lat:
+                    shipment.origin_lat = result.origin_lat
+                if result.origin_lng:
+                    shipment.origin_lng = result.origin_lng
+                if result.dest_name:
+                    shipment.dest_name = result.dest_name
+                if result.dest_lat:
+                    shipment.dest_lat = result.dest_lat
+                if result.dest_lng:
+                    shipment.dest_lng = result.dest_lng
+                if result.shipped_at and not shipment.shipped_at:
+                    shipment.shipped_at = result.shipped_at
+                if result.delivered_at:
+                    shipment.delivered_at = result.delivered_at
+                if result.estimated_delivery and not shipment.estimated_delivery:
+                    shipment.estimated_delivery = result.estimated_delivery
+
+                for event in result.events:
+                    existing = None
+                    if event.event_time:
+                        existing = (
+                            db.query(ShipmentEvent)
+                            .filter(
+                                ShipmentEvent.shipment_id == shipment_id,
+                                ShipmentEvent.event_time == event.event_time,
+                                ShipmentEvent.status == event.status,
+                            )
+                            .first()
+                        )
+
+                    if not existing:
+                        db.add(
+                            ShipmentEvent(
+                                shipment_id=shipment_id,
+                                status=event.status,
+                                location_name=event.location_name,
+                                location_lat=event.location_lat,
+                                location_lng=event.location_lng,
+                                description=event.description,
+                                event_time=event.event_time or datetime.utcnow(),
+                                raw_data=event.raw_data,
+                            )
+                        )
+
+                db.commit()
+
+                if self.predictor.is_ready:
+                    try:
+                        self.predictor.predict_for_shipment(shipment_id)
+                    except Exception as e:
+                        logger.warning(f"Prediction failed for {shipment_id}: {e}")
+
+                scrape_job.status = "completed"
+                scrape_job.completed_at = datetime.utcnow()
+                db.commit()
+
+                self._processed += 1
+                logger.info(f"Completed {carrier_slug}:{tracking_number}")
+
+            except Exception as e:
+                self._failed += 1
+                logger.error(
+                    f"Failed {carrier_slug}:{tracking_number}: {e}"
+                )
+
+                try:
+                    scrape_job.status = "failed"
+                    scrape_job.last_error = str(e)[:500]
+                    scrape_job.attempts = attempts
+                    db.commit()
+
+                    requeued = self.queue.requeue_failed(job, str(e))
+                    if not requeued:
+                        logger.warning(
+                            f"Max retries reached for {carrier_slug}:{tracking_number}"
+                        )
+                except Exception:
+                    pass
+
+            finally:
+                db.close()
+
+    def get_status(self) -> dict:
+        queue_stats = self.queue.get_stats()
+        return {
+            "running": self.running,
+            "processed": self._processed,
+            "failed": self._failed,
+            "queue_size": queue_stats["queue_size"],
+            "processing": queue_stats["processing"],
+            "started_at": self._started_at.isoformat() if self._started_at else None,
+            "uptime_seconds": (
+                (datetime.utcnow() - self._started_at).total_seconds()
+                if self._started_at
+                else 0
+            ),
+            "concurrent_limit": CONCURRENT_SCRAPE_LIMIT,
+            "poll_interval": POLL_INTERVAL,
+        }
+
+
+worker = ScrapeWorker()

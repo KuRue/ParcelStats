@@ -1,11 +1,26 @@
+import logging
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from routers import predict, scrape, train
+from services.worker import worker
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await worker.start()
+    yield
+    await worker.stop()
 
 app = FastAPI(
     title="ParcelStats ML Service",
     description="AI-powered ETA prediction and carrier scraping service",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -23,4 +38,11 @@ app.include_router(train.router, prefix="/train", tags=["training"])
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "parcelstats-ml"}
+    from services.queue import JobQueue
+    queue = JobQueue()
+    return {
+        "status": "ok",
+        "service": "parcelstats-ml",
+        "worker": worker.get_status(),
+        "queue": queue.get_stats(),
+    }
