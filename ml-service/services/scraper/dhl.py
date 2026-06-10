@@ -14,7 +14,7 @@ class DHLExpressScraper(BaseCarrierScraper):
         try:
             async with httpx.Client(timeout=30) as client:
                 resp = await client.get(
-                    f"https://www.dhl.com/shipmentTracking",
+                    "https://www.dhl.com/shipmentTracking",
                     params={"AWB": tracking_number},
                     headers={
                         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",

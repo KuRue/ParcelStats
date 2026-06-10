@@ -2,7 +2,6 @@ import asyncio
 import logging
 from datetime import datetime, timedelta
 from typing import Optional
-from sqlalchemy import text
 from services.config import settings
 from services.queue import JobQueue
 from database.connection import SessionLocal
@@ -67,7 +66,6 @@ class PollScheduler:
 
         db = SessionLocal()
         try:
-            cutoff = datetime.utcnow() - timedelta(hours=72)
             active_shipments = (
                 db.query(Shipment)
                 .filter(

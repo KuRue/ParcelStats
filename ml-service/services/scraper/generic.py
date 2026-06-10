@@ -3,8 +3,6 @@ from bs4 import BeautifulSoup
 from datetime import datetime
 from services.scraper.base import BaseCarrierScraper, ScrapedShipment, ScrapedEvent
 from services.config import settings
-import json
-import re
 
 
 class GenericPlaywrightScraper(BaseCarrierScraper):

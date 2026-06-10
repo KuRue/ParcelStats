@@ -43,7 +43,6 @@ class JobQueue:
         return f"{carrier_slug}:{tracking_number}"
 
     def dequeue(self, timeout: int = 5) -> Optional[dict]:
-        carriers = self.CARRIER_RATE_LIMITS.keys()
         now = time.time()
 
         all_jobs = self.redis.zrange(self.QUEUE_KEY, 0, -1, withscores=True)

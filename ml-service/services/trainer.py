@@ -1,8 +1,7 @@
 from services.config import settings
-from database.models import Shipment, ShipmentEvent, CarrierRoute, Prediction, ModelVersion, ScrapeJob, Carrier
-from services.predictor import ETAPredictor
+from database.models import Shipment, CarrierRoute, ModelVersion, Carrier
 from database.connection import SessionLocal
-from datetime import datetime, timedelta
+from datetime import datetime
 import numpy as np
 import pandas as pd
 import joblib

@@ -20,7 +20,7 @@ async def training_status():
     try:
         active = (
             db.query(ModelVersion)
-            .filter(ModelVersion.is_active == True)
+            .filter(ModelVersion.is_active)
             .all()
         )
         return {

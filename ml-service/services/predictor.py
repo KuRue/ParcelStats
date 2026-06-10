@@ -1,6 +1,5 @@
 import os
 import joblib
-import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta
 from database.connection import SessionLocal
@@ -23,7 +22,7 @@ class ETAPredictor:
         try:
             active = (
                 db.query(ModelVersion)
-                .filter(ModelVersion.model_name == "eta_predictor", ModelVersion.is_active == True)
+                .filter(ModelVersion.model_name == "eta_predictor", ModelVersion.is_active)
                 .first()
             )
             if not active:
