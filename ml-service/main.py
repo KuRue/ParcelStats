@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from routers import predict, scrape, train
 from services.worker import worker
+from services.scheduler import scheduler
 
 logging.basicConfig(
     level=logging.INFO,
@@ -13,7 +14,9 @@ logging.basicConfig(
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await worker.start()
+    await scheduler.start()
     yield
+    await scheduler.stop()
     await worker.stop()
 
 app = FastAPI(
@@ -44,5 +47,6 @@ async def health():
         "status": "ok",
         "service": "parcelstats-ml",
         "worker": worker.get_status(),
+        "scheduler": scheduler.get_status(),
         "queue": queue.get_stats(),
     }
