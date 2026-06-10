@@ -1,4 +1,3 @@
-CREATE EXTENSION IF NOT EXISTS "postgis";
 CREATE EXTENSION IF NOT EXISTS "timescaledb" CASCADE;
 
 BEGIN;
@@ -10,6 +9,7 @@ CREATE TABLE users (
     email_verified TIMESTAMPTZ,
     image TEXT,
     google_id TEXT UNIQUE,
+    password_hash TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -78,7 +78,7 @@ CREATE TABLE shipments (
 );
 
 CREATE TABLE shipment_events (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id UUID DEFAULT gen_random_uuid(),
     shipment_id UUID NOT NULL REFERENCES shipments(id) ON DELETE CASCADE,
     status TEXT NOT NULL,
     location_lat DECIMAL(9,6),
@@ -87,11 +87,12 @@ CREATE TABLE shipment_events (
     description TEXT,
     raw_data JSONB,
     event_time TIMESTAMPTZ NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE(id, event_time)
 );
 
 CREATE TABLE predictions (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id UUID DEFAULT gen_random_uuid(),
     shipment_id UUID NOT NULL REFERENCES shipments(id) ON DELETE CASCADE,
     predicted_delivery TIMESTAMPTZ NOT NULL,
     confidence_low TIMESTAMPTZ,
@@ -99,7 +100,8 @@ CREATE TABLE predictions (
     confidence_pct DECIMAL(5,2),
     model_version TEXT NOT NULL,
     features JSONB,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE(id, created_at)
 );
 
 CREATE TABLE carrier_routes (

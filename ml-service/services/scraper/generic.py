@@ -26,7 +26,7 @@ class GenericPlaywrightScraper(BaseCarrierScraper):
             async with async_playwright() as p:
                 browser = await p.chromium.launch(headless=settings.scrape_headless)
                 page = await browser.new_page()
-                await page.set_default_timeout(30000)
+                page.set_default_timeout(30000)
 
                 await page.goto(url, wait_until="domcontentloaded")
                 await page.wait_for_timeout(2000)

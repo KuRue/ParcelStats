@@ -31,7 +31,13 @@ class MLServiceClient {
   }) {
     return this.request("/predict/eta", {
       method: "POST",
-      body: JSON.stringify(data),
+      body: JSON.stringify({
+        tracking_number: data.trackingNumber,
+        carrier_slug: data.carrierSlug,
+        origin_region: data.originRegion,
+        dest_region: data.destRegion,
+        service_type: data.serviceType,
+      }),
     });
   }
 
@@ -42,14 +48,22 @@ class MLServiceClient {
   }) {
     return this.request("/predict/route", {
       method: "POST",
-      body: JSON.stringify(data),
+      body: JSON.stringify({
+        carrier_slug: data.carrierSlug,
+        origin_region: data.originRegion,
+        dest_region: data.destRegion,
+      }),
     });
   }
 
-  async triggerScrape(trackingNumber: string, carrierSlug: string) {
+  async triggerScrape(trackingNumber: string, carrierSlug: string, shipmentId?: string) {
     return this.request("/scrape/trigger", {
       method: "POST",
-      body: JSON.stringify({ trackingNumber, carrierSlug }),
+      body: JSON.stringify({
+        tracking_number: trackingNumber,
+        carrier_slug: carrierSlug,
+        shipment_id: shipmentId,
+      }),
     });
   }
 

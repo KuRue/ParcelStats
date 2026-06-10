@@ -79,6 +79,7 @@ def test_get_api_scrapers():
     assert get_scraper("ups") is not None
     assert get_scraper("fedex") is not None
     assert get_scraper("dhl-express") is not None
+    assert get_scraper("speedpak") is not None
 
 
 def test_api_scraper_slugs():
@@ -88,4 +89,52 @@ def test_api_scraper_slugs():
     assert "ups" in _registry
     assert "fedex" in _registry
     assert "dhl-express" in _registry
-    assert len(_registry) == 4
+    assert "speedpak" in _registry
+    assert len(_registry) == 5
+
+
+def test_speedpak_parse_waybill():
+    from services.scraper.speedpak import SpeedPAKScraper
+
+    scraper = SpeedPAKScraper()
+    shipment = scraper._parse_waybill(
+        "ES1003208628616UN0101240600N",
+        {
+            "trackingNumber": "ES1003208628616UN0101240600N",
+            "consignmentCityName": "SHENZHEN",
+            "consignmentCountryName": "China",
+            "consigneeCityName": "Largo",
+            "consigneeCountryName": "UnitedStates",
+            "lastStatus": "Import Customs Clearance Completed",
+            "lastTimestamp": 1780938360000,
+            "projectCode": "eBay",
+            "traces": [
+                {
+                    "eventDesc": "Import Customs Clearance Completed",
+                    "oprCountry": "US",
+                    "oprTimestamp": 1780938360000,
+                },
+                {
+                    "eventDesc": "Package Received",
+                    "oprCity": "ShenZhen",
+                    "oprCountry": "CN",
+                    "oprTimestamp": 1780500070000,
+                },
+            ],
+        },
+    )
+
+    assert shipment.status == "customs"
+    assert shipment.service_type == "eBay"
+    assert shipment.origin_name == "SHENZHEN, China"
+    assert shipment.dest_name == "Largo, UnitedStates"
+    assert shipment.origin_lat == 22.5431
+    assert shipment.origin_lng == 114.0579
+    assert shipment.dest_lat == 27.9095
+    assert shipment.dest_lng == -82.7873
+    assert len(shipment.events) == 2
+    assert shipment.events[0].status == "customs"
+    assert shipment.events[0].location_name == "US"
+    assert shipment.events[0].location_lat == 27.9095
+    assert shipment.events[0].location_lng == -82.7873
+    assert shipment.shipped_at == shipment.events[-1].event_time

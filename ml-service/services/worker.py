@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import uuid
 from datetime import datetime
 from typing import Optional
 import redis
@@ -105,6 +106,7 @@ class ScrapeWorker:
                     return
 
                 scrape_job = ScrapeJob(
+                    id=str(uuid.uuid4()),
                     shipment_id=shipment_id,
                     carrier_id=carrier.id,
                     tracking_number=tracking_number,
@@ -131,15 +133,15 @@ class ScrapeWorker:
                     shipment.service_type = result.service_type
                 if result.origin_name:
                     shipment.origin_name = result.origin_name
-                if result.origin_lat:
+                if result.origin_lat is not None:
                     shipment.origin_lat = result.origin_lat
-                if result.origin_lng:
+                if result.origin_lng is not None:
                     shipment.origin_lng = result.origin_lng
                 if result.dest_name:
                     shipment.dest_name = result.dest_name
-                if result.dest_lat:
+                if result.dest_lat is not None:
                     shipment.dest_lat = result.dest_lat
-                if result.dest_lng:
+                if result.dest_lng is not None:
                     shipment.dest_lng = result.dest_lng
                 if result.shipped_at and not shipment.shipped_at:
                     shipment.shipped_at = result.shipped_at
@@ -161,9 +163,21 @@ class ScrapeWorker:
                             .first()
                         )
 
-                    if not existing:
+                    if existing:
+                        if event.location_name:
+                            existing.location_name = event.location_name
+                        if event.location_lat is not None:
+                            existing.location_lat = event.location_lat
+                        if event.location_lng is not None:
+                            existing.location_lng = event.location_lng
+                        if event.description:
+                            existing.description = event.description
+                        if event.raw_data:
+                            existing.raw_data = event.raw_data
+                    else:
                         db.add(
                             ShipmentEvent(
+                                id=str(uuid.uuid4()),
                                 shipment_id=shipment_id,
                                 status=event.status,
                                 location_name=event.location_name,
@@ -228,11 +242,11 @@ class ScrapeWorker:
                        data: dict | None = None):
         event = {
             "type": event_type,
-            "shipment_id": shipment_id,
+            "shipment_id": str(shipment_id),
             "tracking_number": tracking_number,
             "carrier_slug": carrier_slug,
             "status": status,
-            "user_id": user_id,
+            "user_id": str(user_id) if user_id else None,
             "data": data,
             "timestamp": datetime.utcnow().isoformat(),
         }

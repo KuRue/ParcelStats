@@ -30,13 +30,13 @@ export default async function HomePage() {
             </span>
           </Link>
           <nav className="flex items-center gap-4">
-            <a
-              href="/api/auth/signin"
+            <Link
+              href="/auth/signin"
               className="cyber-btn"
             >
               <Terminal className="w-4 h-4 mr-2" />
               Sign In
-            </a>
+            </Link>
           </nav>
         </div>
       </header>

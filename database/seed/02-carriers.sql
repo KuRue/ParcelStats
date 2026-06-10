@@ -23,5 +23,6 @@ INSERT INTO carriers (name, slug, country, api_available, scrape_available, trac
     ('New Zealand Post', 'nz-post', 'NZ', false, true, 'https://www.nzpost.co.nz/tools/track?trackid={tracking_number}'),
     ('Singapore Post', 'singapore-post', 'SG', false, true, 'https://www.singpost.com/track/{tracking_number}'),
     ('Pos Malaysia', 'pos-malaysia', 'MY', false, true, 'https://www.poslaju.com.my/track/{tracking_number}'),
-    ('Thai Post', 'thai-post', 'TH', false, true, 'https://track.thailandpost.co.th/{tracking_number}')
+    ('Thai Post', 'thai-post', 'TH', false, true, 'https://track.thailandpost.co.th/{tracking_number}'),
+    ('SpeedPAK', 'speedpak', 'CN', false, true, 'https://www.speedpak.com/tracking/{tracking_number}')
 ON CONFLICT (slug) DO NOTHING;

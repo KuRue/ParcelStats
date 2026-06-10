@@ -7,6 +7,7 @@ import { Navbar } from "@/components/ui/navbar";
 import { Plus, Search, Activity, Package, Brain, Loader2, Wifi, WifiOff, Map, List } from "lucide-react";
 import { useEventStream } from "@/hooks/use-event-stream";
 import GlobalMap from "@/components/maps/global-map-dynamic";
+import { detectCarrierSlug, normalizeTrackingNumber } from "@/lib/carrier-detection";
 
 interface Tracking {
   id: string;
@@ -32,8 +33,9 @@ export function DashboardContent({ userId }: { userId: string }) {
   const [trackings, setTrackings] = useState<Tracking[]>([]);
   const [loading, setLoading] = useState(true);
   const [newTracking, setNewTracking] = useState("");
-  const [newCarrier, setNewCarrier] = useState("");
+  const [newCarrier, setNewCarrier] = useState("auto");
   const [adding, setAdding] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
   const [carriers, setCarriers] = useState<{ name: string; slug: string }[]>([]);
   const [filter, setFilter] = useState("all");
   const [viewMode, setViewMode] = useState<"split" | "list">("split");
@@ -78,28 +80,36 @@ export function DashboardContent({ userId }: { userId: string }) {
 
   async function handleAddTracking(e: React.FormEvent) {
     e.preventDefault();
-    if (!newTracking || !newCarrier) return;
+    const trackingNumber = normalizeTrackingNumber(newTracking);
+    if (!trackingNumber) return;
 
     setAdding(true);
+    setAddError(null);
     try {
       const res = await fetch("/api/trackings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          trackingNumber: newTracking,
+          trackingNumber,
           carrierSlug: newCarrier,
         }),
       });
 
       if (res.ok) {
         setNewTracking("");
-        setNewCarrier("");
+        setNewCarrier("auto");
         fetchTrackings();
+      } else {
+        const data = await res.json().catch(() => null);
+        setAddError(data?.error || "Failed to add tracking number");
       }
     } finally {
       setAdding(false);
     }
   }
+
+  const detectedCarrierSlug = detectCarrierSlug(newTracking);
+  const detectedCarrier = carriers.find((c) => c.slug === detectedCarrierSlug);
 
   const filtered =
     filter === "all"
@@ -214,7 +224,9 @@ export function DashboardContent({ userId }: { userId: string }) {
             onChange={(e) => setNewCarrier(e.target.value)}
             className="cyber-input text-sm min-w-[160px]"
           >
-            <option value="">Select carrier</option>
+            <option value="auto">
+              {detectedCarrier ? `Auto: ${detectedCarrier.name}` : "Auto-detect"}
+            </option>
             {carriers.map((c) => (
               <option key={c.slug} value={c.slug}>
                 {c.name}
@@ -223,7 +235,7 @@ export function DashboardContent({ userId }: { userId: string }) {
           </select>
           <button
             type="submit"
-            disabled={adding || !newTracking || !newCarrier}
+            disabled={adding || !newTracking || (newCarrier === "auto" && !detectedCarrierSlug)}
             className="cyber-btn-primary cyber-btn whitespace-nowrap"
           >
             {adding ? (
@@ -234,6 +246,9 @@ export function DashboardContent({ userId }: { userId: string }) {
             Track
           </button>
         </form>
+        {addError && (
+          <p className="mt-2 text-xs text-cyber-red font-mono">{addError}</p>
+        )}
       </CyberCard>
 
       {viewMode === "split" && hasMapData && !loading && (

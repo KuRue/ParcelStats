@@ -3,12 +3,14 @@ from services.scraper.usps import USPSPScraper
 from services.scraper.ups import UPSScraper
 from services.scraper.fedex import FedExScraper
 from services.scraper.dhl import DHLExpressScraper
+from services.scraper.speedpak import SpeedPAKScraper
 
 _registry: dict[str, BaseCarrierScraper] = {
     "usps": USPSPScraper(),
     "ups": UPSScraper(),
     "fedex": FedExScraper(),
     "dhl-express": DHLExpressScraper(),
+    "speedpak": SpeedPAKScraper(),
 }
 
 

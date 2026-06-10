@@ -7,6 +7,7 @@ export const users = pgTable("users", {
   emailVerified: timestamp("email_verified", { withTimezone: true }),
   image: text("image"),
   googleId: text("google_id").unique(),
+  passwordHash: text("password_hash"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

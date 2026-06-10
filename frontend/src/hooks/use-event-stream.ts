@@ -20,15 +20,25 @@ interface UseEventStreamOptions {
 }
 
 export function useEventStream(options: UseEventStreamOptions = {}) {
-  const { onUpdate, onStatusChange, enabled = true } = options;
+  const { enabled = true } = options;
+  const onUpdateRef = useRef(options.onUpdate);
+  const onStatusChangeRef = useRef(options.onStatusChange);
   const [connected, setConnected] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<LiveUpdate | null>(null);
   const [updateCount, setUpdateCount] = useState(0);
   const eventSourceRef = useRef<EventSource | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  onUpdateRef.current = options.onUpdate;
+  onStatusChangeRef.current = options.onStatusChange;
+
   const connect = useCallback(() => {
-    if (!enabled || eventSourceRef.current) return;
+    if (!enabled) return;
+
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
 
     const es = new EventSource("/api/events");
 
@@ -41,9 +51,9 @@ export function useEventStream(options: UseEventStreamOptions = {}) {
         const event: LiveUpdate = JSON.parse(e.data);
         setLastUpdate(event);
         setUpdateCount((c) => c + 1);
-        onUpdate?.(event);
+        onUpdateRef.current?.(event);
         if (event.status && event.shipment_id) {
-          onStatusChange?.(event.shipment_id, event.status);
+          onStatusChangeRef.current?.(event.shipment_id, event.status);
         }
       } catch {}
     });
@@ -62,7 +72,7 @@ export function useEventStream(options: UseEventStreamOptions = {}) {
     };
 
     eventSourceRef.current = es;
-  }, [enabled, onUpdate, onStatusChange]);
+  }, [enabled]);
 
   useEffect(() => {
     connect();

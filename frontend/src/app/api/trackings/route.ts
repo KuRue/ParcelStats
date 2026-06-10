@@ -3,6 +3,16 @@ import { db } from "@/lib/db";
 import { shipments, carriers, shipmentEvents, predictions } from "@/lib/db-schema";
 import { eq, and, desc } from "drizzle-orm";
 import { auth } from "@/lib/auth";
+import { detectCarrierSlug, normalizeTrackingNumber } from "@/lib/carrier-detection";
+
+function isUniqueViolation(error: unknown) {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: string }).code === "23505"
+  );
+}
 
 export async function GET() {
   const session = await auth();
@@ -77,11 +87,24 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json();
-  const { trackingNumber, carrierSlug } = body;
+  const trackingNumber = normalizeTrackingNumber(body.trackingNumber || "");
+  const requestedCarrierSlug =
+    typeof body.carrierSlug === "string" ? body.carrierSlug : "";
+  const carrierSlug =
+    requestedCarrierSlug && requestedCarrierSlug !== "auto"
+      ? requestedCarrierSlug
+      : detectCarrierSlug(trackingNumber);
 
-  if (!trackingNumber || !carrierSlug) {
+  if (!trackingNumber) {
     return NextResponse.json(
-      { error: "trackingNumber and carrierSlug required" },
+      { error: "trackingNumber required" },
+      { status: 400 }
+    );
+  }
+
+  if (!carrierSlug) {
+    return NextResponse.json(
+      { error: "Carrier could not be detected" },
       { status: 400 }
     );
   }
@@ -112,24 +135,35 @@ export async function POST(request: Request) {
     return NextResponse.json({ id: existing.id, status: "already_tracked" });
   }
 
-  const [newShipment] = await db
-    .insert(shipments)
-    .values({
-      trackingNumber,
-      carrierId: carrier.id,
-      userId: session.user.id,
-      status: "pending",
-    })
-    .returning({ id: shipments.id });
+  let newShipment: { id: string };
+  try {
+    [newShipment] = await db
+      .insert(shipments)
+      .values({
+        trackingNumber,
+        carrierId: carrier.id,
+        userId: session.user.id,
+        status: "pending",
+      })
+      .returning({ id: shipments.id });
+  } catch (error) {
+    if (isUniqueViolation(error)) {
+      return NextResponse.json(
+        { error: "This tracking number is already tracked for that carrier" },
+        { status: 409 }
+      );
+    }
+    throw error;
+  }
 
   try {
     await fetch(`${process.env.ML_SERVICE_URL}/scrape/trigger`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        trackingNumber,
-        carrierSlug,
-        shipmentId: newShipment.id,
+        tracking_number: trackingNumber,
+        carrier_slug: carrierSlug,
+        shipment_id: newShipment.id,
       }),
     });
   } catch {}
