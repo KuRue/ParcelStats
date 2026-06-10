@@ -3,6 +3,8 @@ import { db } from "@/lib/db";
 import { shipments, carriers, predictions, carrierRoutes } from "@/lib/db-schema";
 import { sql, desc, eq } from "drizzle-orm";
 
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   const [totalResult] = await db
     .select({ count: sql<number>`count(*)::int` })
@@ -49,7 +51,7 @@ export async function GET() {
     totalShipments: totalResult?.count ?? 0,
     totalCarriers: uniqueCarriers[0]?.count ?? 0,
     totalPredictions: predictionResult?.count ?? 0,
-    avgConfidence: parseFloat(avgConf?.avg ?? "0"),
+    avgConfidence: avgConf?.avg ?? 0,
     topCarriers: carrierCount.map((c) => ({
       name: c.carrierName,
       slug: c.carrierSlug,

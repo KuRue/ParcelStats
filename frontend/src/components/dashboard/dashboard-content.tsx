@@ -209,11 +209,11 @@ export function DashboardContent({ userId }: { userId: string }) {
               carrier={t.carrier.name}
               carrierSlug={t.carrier.slug}
               status={t.status}
-              lastEvent={t.lastEvent}
-              lastLocation={t.lastLocation}
-              estimatedDelivery={t.estimatedDelivery}
-              confidencePct={t.confidencePct || undefined}
-              updatedAt={t.updatedAt}
+              lastEvent={t.lastEvent ?? undefined}
+              lastLocation={t.lastLocation ?? undefined}
+              estimatedDelivery={t.estimatedDelivery ?? undefined}
+              confidencePct={t.confidencePct ?? undefined}
+              updatedAt={t.updatedAt ?? undefined}
             />
           ))}
         </div>

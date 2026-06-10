@@ -14,3 +14,13 @@ declare module "next-auth" {
     id: string;
   }
 }
+
+declare module "@auth/drizzle-adapter" {
+  interface AdapterUser {
+    id: string;
+    name: string;
+    email: string;
+    image?: string | null;
+    emailVerified?: Date | null;
+  }
+}

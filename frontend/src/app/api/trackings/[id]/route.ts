@@ -70,7 +70,7 @@ export async function GET(
           predictedDelivery: prediction.predictedDelivery,
           confidenceLow: prediction.confidenceLow,
           confidenceHigh: prediction.confidenceHigh,
-          confidencePct: parseFloat(prediction.confidencePct),
+          confidencePct: prediction.confidencePct ? parseFloat(prediction.confidencePct) : 0,
           modelVersion: prediction.modelVersion,
         }
       : null,

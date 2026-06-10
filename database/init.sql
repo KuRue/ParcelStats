@@ -5,12 +5,42 @@ BEGIN;
 
 CREATE TABLE users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    google_id TEXT UNIQUE NOT NULL,
-    email TEXT UNIQUE NOT NULL,
     name TEXT NOT NULL,
-    avatar_url TEXT,
+    email TEXT UNIQUE NOT NULL,
+    email_verified TIMESTAMPTZ,
+    image TEXT,
+    google_id TEXT UNIQUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE accounts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    type TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    "provider_account_id" TEXT NOT NULL,
+    refresh_token TEXT,
+    access_token TEXT,
+    expires_at BIGINT,
+    token_type TEXT,
+    scope TEXT,
+    id_token TEXT,
+    session_state TEXT,
+    UNIQUE(provider, "provider_account_id")
+);
+
+CREATE TABLE sessions (
+    session_token TEXT PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    expires TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE verification_tokens (
+    identifier TEXT NOT NULL,
+    token TEXT UNIQUE NOT NULL,
+    expires TIMESTAMPTZ NOT NULL,
+    UNIQUE(identifier, token)
 );
 
 CREATE TABLE carriers (
@@ -120,6 +150,8 @@ CREATE INDEX idx_shipment_events_time ON shipment_events(event_time DESC);
 CREATE INDEX idx_predictions_shipment ON predictions(shipment_id, created_at DESC);
 CREATE INDEX idx_scrape_jobs_status ON scrape_jobs(status, next_attempt_at);
 CREATE INDEX idx_carrier_routes_lookup ON carrier_routes(carrier_id, origin_region, dest_region);
+CREATE INDEX idx_accounts_user_id ON accounts(user_id);
+CREATE INDEX idx_sessions_user_id ON sessions(user_id);
 
 SELECT create_hypertable('shipment_events', 'event_time', if_not_exists => true);
 SELECT create_hypertable('predictions', 'created_at', if_not_exists => true);

@@ -52,7 +52,7 @@ export async function GET() {
         ...s,
         lastEvent: lastEvent?.description || null,
         lastLocation: lastEvent?.locationName || null,
-        confidencePct: prediction ? parseFloat(prediction.confidencePct) : null,
+        confidencePct: prediction?.confidencePct ? parseFloat(prediction.confidencePct) : null,
       };
     })
   );
