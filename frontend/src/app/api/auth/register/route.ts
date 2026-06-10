@@ -3,26 +3,35 @@ import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 import * as schema from "@/lib/db-schema";
 import { eq } from "drizzle-orm";
+import { z } from "zod";
+import { rateLimit, clientIp } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
+const registerSchema = z.object({
+  name: z.string().trim().min(1).max(100),
+  email: z.string().trim().toLowerCase().email().max(254),
+  password: z.string().min(8).max(128),
+});
+
 export async function POST(req: Request) {
   try {
-    const { name, email, password } = await req.json();
+    const limited = await rateLimit({
+      action: "register",
+      key: clientIp(req),
+      limit: 5,
+      windowSeconds: 3600,
+    });
+    if (limited) return limited;
 
-    if (!name || !email || !password) {
+    const parsed = registerSchema.safeParse(await req.json());
+    if (!parsed.success) {
       return NextResponse.json(
-        { error: "Name, email, and password are required" },
+        { error: parsed.error.issues[0]?.message || "Invalid input" },
         { status: 400 }
       );
     }
-
-    if (password.length < 8) {
-      return NextResponse.json(
-        { error: "Password must be at least 8 characters" },
-        { status: 400 }
-      );
-    }
+    const { name, email, password } = parsed.data;
 
     const [existing] = await db
       .select()

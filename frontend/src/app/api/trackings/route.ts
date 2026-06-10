@@ -2,8 +2,11 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { shipments, carriers, shipmentEvents, predictions } from "@/lib/db-schema";
 import { eq, and, desc } from "drizzle-orm";
+import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { detectCarrierSlug, normalizeTrackingNumber } from "@/lib/carrier-detection";
+import { internalApiKeyHeader } from "@/lib/ml-client";
+import { rateLimit } from "@/lib/rate-limit";
 
 function isUniqueViolation(error: unknown) {
   return (
@@ -20,7 +23,29 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const userShipments = await db
+  const latestEvents = db
+    .selectDistinctOn([shipmentEvents.shipmentId], {
+      shipmentId: shipmentEvents.shipmentId,
+      description: shipmentEvents.description,
+      locationName: shipmentEvents.locationName,
+      locationLat: shipmentEvents.locationLat,
+      locationLng: shipmentEvents.locationLng,
+    })
+    .from(shipmentEvents)
+    .orderBy(shipmentEvents.shipmentId, desc(shipmentEvents.eventTime))
+    .as("latest_events");
+
+  const latestPredictions = db
+    .selectDistinctOn([predictions.shipmentId], {
+      shipmentId: predictions.shipmentId,
+      predictedDelivery: predictions.predictedDelivery,
+      confidencePct: predictions.confidencePct,
+    })
+    .from(predictions)
+    .orderBy(predictions.shipmentId, desc(predictions.createdAt))
+    .as("latest_predictions");
+
+  const rows = await db
     .select({
       id: shipments.id,
       trackingNumber: shipments.trackingNumber,
@@ -37,50 +62,51 @@ export async function GET() {
         name: carriers.name,
         slug: carriers.slug,
       },
+      lastEvent: latestEvents.description,
+      lastLocation: latestEvents.locationName,
+      lastLat: latestEvents.locationLat,
+      lastLng: latestEvents.locationLng,
+      predictedDelivery: latestPredictions.predictedDelivery,
+      confidencePct: latestPredictions.confidencePct,
     })
     .from(shipments)
     .innerJoin(carriers, eq(shipments.carrierId, carriers.id))
+    .leftJoin(latestEvents, eq(latestEvents.shipmentId, shipments.id))
+    .leftJoin(latestPredictions, eq(latestPredictions.shipmentId, shipments.id))
     .where(eq(shipments.userId, session.user.id))
     .orderBy(desc(shipments.updatedAt));
 
-  const enriched = await Promise.all(
-    userShipments.map(async (s) => {
-      const [lastEvent] = await db
-        .select({
-          description: shipmentEvents.description,
-          locationName: shipmentEvents.locationName,
-          locationLat: shipmentEvents.locationLat,
-          locationLng: shipmentEvents.locationLng,
-        })
-        .from(shipmentEvents)
-        .where(eq(shipmentEvents.shipmentId, s.id))
-        .orderBy(desc(shipmentEvents.eventTime))
-        .limit(1);
-
-      const [prediction] = await db
-        .select({
-          predictedDelivery: predictions.predictedDelivery,
-          confidencePct: predictions.confidencePct,
-        })
-        .from(predictions)
-        .where(eq(predictions.shipmentId, s.id))
-        .orderBy(desc(predictions.createdAt))
-        .limit(1);
-
-      return {
-        ...s,
-        estimatedDelivery: s.estimatedDelivery ?? prediction?.predictedDelivery ?? null,
-        lastEvent: lastEvent?.description || null,
-        lastLocation: lastEvent?.locationName || null,
-        lastLat: lastEvent?.locationLat || null,
-        lastLng: lastEvent?.locationLng || null,
-        confidencePct: prediction?.confidencePct ? parseFloat(prediction.confidencePct) : null,
-      };
-    })
-  );
+  const enriched = rows.map(({ predictedDelivery, confidencePct, ...s }) => ({
+    ...s,
+    estimatedDelivery: s.estimatedDelivery ?? predictedDelivery ?? null,
+    lastEvent: s.lastEvent || null,
+    lastLocation: s.lastLocation || null,
+    lastLat: s.lastLat || null,
+    lastLng: s.lastLng || null,
+    confidencePct: confidencePct ? parseFloat(confidencePct) : null,
+  }));
 
   return NextResponse.json(enriched);
 }
+
+const createTrackingSchema = z.object({
+  trackingNumber: z
+    .string()
+    .transform(normalizeTrackingNumber)
+    .pipe(
+      z
+        .string()
+        .min(6, "Tracking number too short")
+        .max(40, "Tracking number too long")
+        .regex(/^[0-9A-Z-]+$/, "Tracking number contains invalid characters")
+    ),
+  carrierSlug: z
+    .string()
+    .regex(/^[a-z0-9-]{1,50}$/)
+    .optional()
+    .or(z.literal("auto"))
+    .optional(),
+});
 
 export async function POST(request: Request) {
   const session = await auth();
@@ -88,21 +114,35 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const body = await request.json();
-  const trackingNumber = normalizeTrackingNumber(body.trackingNumber || "");
-  const requestedCarrierSlug =
-    typeof body.carrierSlug === "string" ? body.carrierSlug : "";
+  const limited = await rateLimit({
+    action: "create-tracking",
+    key: session.user.id,
+    limit: 30,
+    windowSeconds: 3600,
+  });
+  if (limited) return limited;
+
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  const parsed = createTrackingSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: parsed.error.issues[0]?.message || "Invalid input" },
+      { status: 400 }
+    );
+  }
+
+  const trackingNumber = parsed.data.trackingNumber;
+  const requestedCarrierSlug = parsed.data.carrierSlug ?? "";
   const carrierSlug =
     requestedCarrierSlug && requestedCarrierSlug !== "auto"
       ? requestedCarrierSlug
       : detectCarrierSlug(trackingNumber);
-
-  if (!trackingNumber) {
-    return NextResponse.json(
-      { error: "trackingNumber required" },
-      { status: 400 }
-    );
-  }
 
   if (!carrierSlug) {
     return NextResponse.json(
@@ -161,14 +201,19 @@ export async function POST(request: Request) {
   try {
     await fetch(`${process.env.ML_SERVICE_URL}/scrape/trigger`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...internalApiKeyHeader(),
+      },
       body: JSON.stringify({
         tracking_number: trackingNumber,
         carrier_slug: carrierSlug,
         shipment_id: newShipment.id,
       }),
     });
-  } catch {}
+  } catch (error) {
+    console.error("Failed to trigger scrape for new shipment:", error);
+  }
 
   return NextResponse.json({ id: newShipment.id, status: "created" });
 }

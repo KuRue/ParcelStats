@@ -5,6 +5,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql://parcelstats:parcelstats@localhost:5432/parcelstats"
     redis_url: str = "redis://localhost:6379"
     scrape_headless: bool = True
+    internal_api_key: str | None = None
     model_retrain_schedule: str = "0 3 * * 0"
     model_path: str = "/app/models"
     usps_web_tools_user_id: str | None = None

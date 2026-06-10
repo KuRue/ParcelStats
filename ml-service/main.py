@@ -1,8 +1,8 @@
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import Depends, FastAPI
 from routers import predict, scrape, train
+from services.security import require_internal_api_key
 from services.worker import worker
 from services.scheduler import scheduler
 
@@ -26,17 +26,12 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-app.include_router(predict.router, prefix="/predict", tags=["predictions"])
-app.include_router(scrape.router, prefix="/scrape", tags=["scraping"])
-app.include_router(train.router, prefix="/train", tags=["training"])
+# Service-to-service API only (called by the Next.js backend over the Docker
+# network), so no CORS middleware - browsers should never call this directly.
+auth = [Depends(require_internal_api_key)]
+app.include_router(predict.router, prefix="/predict", tags=["predictions"], dependencies=auth)
+app.include_router(scrape.router, prefix="/scrape", tags=["scraping"], dependencies=auth)
+app.include_router(train.router, prefix="/train", tags=["training"], dependencies=auth)
 
 
 @app.get("/health")

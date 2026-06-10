@@ -14,14 +14,14 @@ export async function GET(
   const [shipment] = await db
     .select()
     .from(shipments)
-    .where(
-      session?.user?.id
-        ? and(eq(shipments.id, shipmentId), eq(shipments.userId, session.user.id))
-        : eq(shipments.id, shipmentId)
-    )
+    .where(eq(shipments.id, shipmentId))
     .limit(1);
 
-  if (!shipment) {
+  // Community shipments (no owner) are public; user shipments are owner-only.
+  if (
+    !shipment ||
+    (shipment.userId !== null && shipment.userId !== session?.user?.id)
+  ) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
@@ -45,6 +45,7 @@ export async function GET(
     .limit(1);
 
   return NextResponse.json({
+    canDelete: shipment.userId !== null && shipment.userId === session?.user?.id,
     id: shipment.id,
     trackingNumber: shipment.trackingNumber,
     carrier: {
@@ -81,4 +82,30 @@ export async function GET(
         }
       : null,
   });
+}
+
+export async function DELETE(
+  _request: Request,
+  { params }: { params: { id: string } }
+) {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const [deleted] = await db
+    .delete(shipments)
+    .where(
+      and(
+        eq(shipments.id, params.id),
+        eq(shipments.userId, session.user.id)
+      )
+    )
+    .returning({ id: shipments.id });
+
+  if (!deleted) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  return NextResponse.json({ id: deleted.id, status: "deleted" });
 }
