@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useSession, signOut } from "next-auth/react";
-import { Package, BarChart3, LogOut, Menu, X } from "lucide-react";
+import { Package, BarChart3, LogOut, Menu, X, Shield } from "lucide-react";
 import { useState } from "react";
 
 export function Navbar() {
@@ -35,6 +35,15 @@ export function Navbar() {
                 <BarChart3 className="w-4 h-4 inline mr-1" />
                 Stats
               </Link>
+              {session.user?.isAdmin && (
+                <Link
+                  href="/admin"
+                  className="text-sm text-cyber-muted hover:text-cyber-green transition-colors font-mono"
+                >
+                  <Shield className="w-4 h-4 inline mr-1" />
+                  Admin
+                </Link>
+              )}
             </>
           )}
           {session ? (
@@ -84,6 +93,15 @@ export function Navbar() {
                 >
                   Stats
                 </Link>
+                {session.user?.isAdmin && (
+                  <Link
+                    href="/admin"
+                    className="text-sm text-cyber-muted hover:text-cyber-green font-mono"
+                    onClick={() => setMobileOpen(false)}
+                  >
+                    Admin
+                  </Link>
+                )}
               </>
             )}
             {session ? (

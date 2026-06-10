@@ -57,6 +57,8 @@ DOMAIN=localhost
 DB_PASSWORD=your_secure_password
 NEXTAUTH_SECRET=openssl rand -base64 32
 NEXTAUTH_URL=https://your-domain.com
+# Shared secret between frontend and ML service (openssl rand -hex 32)
+INTERNAL_API_KEY=your_internal_api_key
 GOOGLE_CLIENT_ID=your_google_client_id
 GOOGLE_CLIENT_SECRET=your_google_client_secret
 
@@ -102,6 +104,29 @@ ParcelStats is designed to run as a Docker stack on Unraid:
 4. In the Unraid UI, go to the Compose tab and deploy
 
 All data persists in Docker volumes. Back up the `postgres-data` volume regularly.
+
+### Production checklist (e.g. ps.kurue.com)
+
+1. Point your domain's DNS at the server and terminate TLS at your reverse
+   proxy (Traefik, NPM, or SWAG on Unraid), forwarding to the frontend on
+   port 3000.
+2. Set in `.env`:
+   - `NEXTAUTH_URL=https://ps.kurue.com`
+   - `NEXTAUTH_SECRET` (generate: `openssl rand -base64 32`)
+   - `INTERNAL_API_KEY` (generate: `openssl rand -hex 32`)
+   - `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` with redirect URI
+     `https://ps.kurue.com/api/auth/callback/google`
+   - `ADMIN_EMAILS=you@gmail.com` — grants access to the `/admin` dashboard
+   - A strong `DB_PASSWORD`
+3. The compose file binds Postgres, Redis, and the ML service to
+   `127.0.0.1` only; the frontend (port 3000) is the only service your
+   proxy needs to reach.
+
+## Admin Dashboard
+
+Users listed in `ADMIN_EMAILS` see an **Admin** link in the navbar
+(`/admin`) with system stats, scraper health, model versions and accuracy,
+prediction-source breakdown, and retrain/seed controls.
 
 ## Carrier Support
 

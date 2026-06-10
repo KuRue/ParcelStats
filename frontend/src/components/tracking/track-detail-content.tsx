@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { useParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { CyberCard, StatCard } from "@/components/ui/cyber-card";
 import { TrackingTimeline, ConfidenceBar, StatusBadge } from "@/components/tracking/timeline";
 import { useEventStream } from "@/hooks/use-event-stream";
@@ -15,12 +15,14 @@ import {
   Loader2,
   Activity,
   TrendingUp,
+  Trash2,
 } from "lucide-react";
 import Link from "next/link";
 import ShipmentRouteMap from "@/components/maps/shipment-map-dynamic";
 import { formatRegionalDateHour } from "@/lib/utils";
 
 interface ShipmentDetail {
+  canDelete?: boolean;
   id: string;
   trackingNumber: string;
   carrier: { name: string; slug: string; trackingUrlTemplate: string | null };
@@ -59,9 +61,26 @@ export function TrackDetailContent({
   shipmentId: string;
   authenticated: boolean;
 }) {
+  const router = useRouter();
   const [data, setData] = useState<ShipmentDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDelete = useCallback(async () => {
+    if (!window.confirm("Stop tracking this shipment? This cannot be undone.")) {
+      return;
+    }
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/trackings/${shipmentId}`, { method: "DELETE" });
+      if (res.ok) {
+        router.push("/dashboard");
+        return;
+      }
+    } catch {}
+    setDeleting(false);
+  }, [shipmentId, router]);
 
   const loadData = useCallback(async () => {
     try {
@@ -150,17 +169,29 @@ export function TrackDetailContent({
             </p>
           </div>
         </div>
-        {trackingUrl && (
-          <a
-            href={trackingUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="cyber-btn w-full text-xs sm:w-auto sm:shrink-0"
-          >
-            <ExternalLink className="w-3 h-3 mr-1" />
-            Carrier Site
-          </a>
-        )}
+        <div className="flex flex-col gap-2 sm:flex-row sm:shrink-0">
+          {trackingUrl && (
+            <a
+              href={trackingUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="cyber-btn w-full text-xs sm:w-auto"
+            >
+              <ExternalLink className="w-3 h-3 mr-1" />
+              Carrier Site
+            </a>
+          )}
+          {data.canDelete && (
+            <button
+              onClick={handleDelete}
+              disabled={deleting}
+              className="cyber-btn w-full text-xs sm:w-auto text-cyber-red border-cyber-red/40 hover:border-cyber-red disabled:opacity-50"
+            >
+              <Trash2 className="w-3 h-3 mr-1 inline" />
+              {deleting ? "Removing..." : "Stop Tracking"}
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-6 sm:mb-8">

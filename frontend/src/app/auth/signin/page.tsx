@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -11,6 +11,14 @@ export default function SignInPage() {
   const [isRegister, setIsRegister] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [hasGoogle, setHasGoogle] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/auth/providers")
+      .then((r) => (r.ok ? r.json() : {}))
+      .then((providers: Record<string, unknown>) => setHasGoogle(!!providers?.google))
+      .catch(() => {});
+  }, []);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -111,6 +119,26 @@ export default function SignInPage() {
                   <AlertCircle className="w-4 h-4 shrink-0" />
                   {error}
                 </div>
+              )}
+
+              {hasGoogle && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => signIn("google", { callbackUrl: "/dashboard" })}
+                    className="cyber-btn w-full flex items-center justify-center gap-2 mb-4"
+                  >
+                    <svg className="w-4 h-4" viewBox="0 0 24 24" aria-hidden="true">
+                      <path fill="currentColor" d="M21.35 11.1h-9.17v2.73h6.51c-.33 3.81-3.5 5.44-6.5 5.44C8.36 19.27 5 16.25 5 12c0-4.1 3.2-7.27 7.2-7.27 3.09 0 4.9 1.97 4.9 1.97L19 4.72S16.56 2 12.1 2C6.42 2 2.03 6.8 2.03 12c0 5.05 4.13 10 10.22 10 5.35 0 9.25-3.67 9.25-9.09 0-1.15-.15-1.81-.15-1.81Z" />
+                    </svg>
+                    Continue with Google
+                  </button>
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="flex-1 h-px bg-cyber-border/50" />
+                    <span className="text-[10px] text-cyber-muted font-mono">OR</span>
+                    <div className="flex-1 h-px bg-cyber-border/50" />
+                  </div>
+                </>
               )}
 
               <form onSubmit={handleSubmit} className="space-y-4">

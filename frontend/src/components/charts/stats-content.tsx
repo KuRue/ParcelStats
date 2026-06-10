@@ -13,7 +13,19 @@ import {
   BarChart3,
 } from "lucide-react";
 
+interface AccuracyBucket {
+  count: number;
+  mae_days?: number;
+  bias_days?: number;
+  within_1_day_pct?: number;
+  within_2_days_pct?: number;
+}
+
 interface CommunityStats {
+  accuracy: {
+    overall: AccuracyBucket;
+    by_carrier: Record<string, AccuracyBucket>;
+  } | null;
   totalShipments: number;
   totalCarriers: number;
   totalPredictions: number;
@@ -164,6 +176,68 @@ export function StatsContent() {
           )}
         </CyberCard>
       </div>
+
+      {stats?.accuracy && stats.accuracy.overall.count > 0 && (
+        <CyberCard terminal title="Prediction Accuracy" className="mt-6">
+          <h2 className="text-sm font-display tracking-wide text-cyber-green mb-4 flex items-center gap-2">
+            <Brain className="w-4 h-4" />
+            How accurate are our ETAs?
+          </h2>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+            <StatCard
+              label="Deliveries Scored"
+              value={stats.accuracy.overall.count}
+              color="cyan"
+              sub="Predicted vs actual"
+            />
+            <StatCard
+              label="Avg Error"
+              value={`${stats.accuracy.overall.mae_days ?? 0}d`}
+              color="green"
+              sub="Mean absolute error"
+            />
+            <StatCard
+              label="Within 1 Day"
+              value={`${stats.accuracy.overall.within_1_day_pct ?? 0}%`}
+              color="purple"
+              sub="Of actual delivery"
+            />
+            <StatCard
+              label="Within 2 Days"
+              value={`${stats.accuracy.overall.within_2_days_pct ?? 0}%`}
+              color="yellow"
+              sub="Of actual delivery"
+            />
+          </div>
+
+          <div className="space-y-2">
+            {Object.entries(stats.accuracy.by_carrier)
+              .filter(([, b]) => b.count >= 5)
+              .sort((a, b) => b[1].count - a[1].count)
+              .slice(0, 8)
+              .map(([slug, bucket]) => (
+                <div
+                  key={slug}
+                  className="flex items-center justify-between py-2 border-b border-cyber-border/30 last:border-0"
+                >
+                  <span className="text-sm text-cyber-text font-mono">{slug}</span>
+                  <div className="flex items-center gap-4">
+                    <span className="text-xs text-cyber-muted font-mono">
+                      {bucket.count} deliveries
+                    </span>
+                    <span className="text-sm text-cyber-green font-mono">
+                      ±{bucket.mae_days ?? 0}d avg
+                    </span>
+                    <span className="text-sm text-cyber-cyan font-mono">
+                      {bucket.within_1_day_pct ?? 0}% within 1d
+                    </span>
+                  </div>
+                </div>
+              ))}
+          </div>
+        </CyberCard>
+      )}
 
       <CyberCard className="mt-6">
         <div className="text-center py-6">

@@ -1,3 +1,8 @@
+export function internalApiKeyHeader(): Record<string, string> {
+  const key = process.env.INTERNAL_API_KEY;
+  return key ? { "X-Internal-API-Key": key } : {};
+}
+
 class MLServiceClient {
   private baseUrl: string;
 
@@ -9,6 +14,7 @@ class MLServiceClient {
     const res = await fetch(`${this.baseUrl}${path}`, {
       headers: {
         "Content-Type": "application/json",
+        ...internalApiKeyHeader(),
         ...options?.headers,
       },
       ...options,
@@ -67,8 +73,23 @@ class MLServiceClient {
     });
   }
 
+  async getAccuracy() {
+    return this.request("/predict/accuracy");
+  }
+
   async getModelStatus() {
-    return this.request("/model/status");
+    return this.request("/train/status");
+  }
+
+  async getHealth() {
+    return this.request("/health");
+  }
+
+  async seedSyntheticData(count: number) {
+    return this.request("/train/seed", {
+      method: "POST",
+      body: JSON.stringify({ count }),
+    });
   }
 
   async triggerRetrain() {

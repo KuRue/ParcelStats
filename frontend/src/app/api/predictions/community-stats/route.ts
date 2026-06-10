@@ -2,8 +2,29 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { shipments, carriers, predictions, carrierRoutes } from "@/lib/db-schema";
 import { sql, desc, eq } from "drizzle-orm";
+import { mlClient } from "@/lib/ml-client";
 
 export const dynamic = "force-dynamic";
+
+interface AccuracyBucket {
+  count: number;
+  mae_days?: number;
+  bias_days?: number;
+  within_1_day_pct?: number;
+  within_2_days_pct?: number;
+}
+
+async function fetchAccuracy(): Promise<{
+  overall: AccuracyBucket;
+  by_carrier: Record<string, AccuracyBucket>;
+} | null> {
+  try {
+    const res = await mlClient.getAccuracy();
+    return res?.accuracy ?? null;
+  } catch {
+    return null;
+  }
+}
 
 export async function GET() {
   const [totalResult] = await db
@@ -47,7 +68,10 @@ export async function GET() {
     .select({ count: sql<number>`count(distinct ${shipments.carrierId})::int` })
     .from(shipments);
 
+  const accuracy = await fetchAccuracy();
+
   return NextResponse.json({
+    accuracy,
     totalShipments: totalResult?.count ?? 0,
     totalCarriers: uniqueCarriers[0]?.count ?? 0,
     totalPredictions: predictionResult?.count ?? 0,
