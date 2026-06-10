@@ -3,7 +3,6 @@ from services.scraper.usps import USPSPScraper
 from services.scraper.ups import UPSScraper
 from services.scraper.fedex import FedExScraper
 from services.scraper.dhl import DHLExpressScraper
-from services.scraper.generic import get_playwright_scraper
 
 _registry: dict[str, BaseCarrierScraper] = {
     "usps": USPSPScraper(),
@@ -17,6 +16,7 @@ def get_scraper(carrier_slug: str) -> BaseCarrierScraper | None:
     if carrier_slug in _registry:
         return _registry[carrier_slug]
 
+    from services.scraper.generic import get_playwright_scraper
     pw_scraper = get_playwright_scraper(carrier_slug)
     if pw_scraper:
         return pw_scraper
