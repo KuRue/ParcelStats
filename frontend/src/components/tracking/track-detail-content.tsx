@@ -16,6 +16,7 @@ import {
   TrendingUp,
 } from "lucide-react";
 import Link from "next/link";
+import ShipmentRouteMap from "@/components/maps/shipment-map-dynamic";
 
 interface ShipmentDetail {
   id: string;
@@ -24,13 +25,19 @@ interface ShipmentDetail {
   status: string;
   serviceType: string | null;
   originName: string | null;
+  originLat: string | null;
+  originLng: string | null;
   destName: string | null;
+  destLat: string | null;
+  destLng: string | null;
   shippedAt: string | null;
   deliveredAt: string | null;
   estimatedDelivery: string | null;
   events: {
     status: string;
     locationName: string | null;
+    locationLat: string | null;
+    locationLng: string | null;
     description: string | null;
     eventTime: string;
   }[];
@@ -155,7 +162,24 @@ export function TrackDetailContent({
       </div>
 
       <div className="grid lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2">
+        <div className="lg:col-span-2 space-y-6">
+          <CyberCard terminal title="map://route" glow="cyan">
+            <ShipmentRouteMap
+              events={data.events.map((e) => ({
+                ...e,
+                locationLat: e.locationLat ? parseFloat(e.locationLat) : null,
+                locationLng: e.locationLng ? parseFloat(e.locationLng) : null,
+              }))}
+              originLat={data.originLat ? parseFloat(data.originLat) : null}
+              originLng={data.originLng ? parseFloat(data.originLng) : null}
+              originName={data.originName}
+              destLat={data.destLat ? parseFloat(data.destLat) : null}
+              destLng={data.destLng ? parseFloat(data.destLng) : null}
+              destName={data.destName}
+              status={data.status}
+            />
+          </CyberCard>
+
           <CyberCard terminal title="shipment://events">
             <h2 className="text-sm font-display uppercase tracking-wider text-cyber-cyan mb-4">
               Tracking Events
@@ -219,17 +243,6 @@ export function TrackDetailContent({
               </div>
             </CyberCard>
           )}
-
-          <CyberCard terminal title="map://route">
-            <div className="aspect-square bg-cyber-surface rounded border border-cyber-border flex items-center justify-center">
-              <div className="text-center">
-                <MapPin className="w-8 h-8 text-cyber-cyan/30 mx-auto mb-2" />
-                <p className="text-xs text-cyber-muted font-mono">
-                  Route map loading...
-                </p>
-              </div>
-            </div>
-          </CyberCard>
         </div>
       </div>
     </div>
