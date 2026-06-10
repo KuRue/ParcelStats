@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { CyberCard, StatCard } from "@/components/ui/cyber-card";
 import { TrackingCard } from "@/components/tracking/tracking-card";
 import { Navbar } from "@/components/ui/navbar";
-import { Plus, Search, Activity, Package, Brain, Loader2 } from "lucide-react";
+import { Plus, Search, Activity, Package, Brain, Loader2, Wifi, WifiOff } from "lucide-react";
+import { useEventStream } from "@/hooks/use-event-stream";
 
 interface Tracking {
   id: string;
@@ -26,6 +27,19 @@ export function DashboardContent({ userId }: { userId: string }) {
   const [adding, setAdding] = useState(false);
   const [carriers, setCarriers] = useState<{ name: string; slug: string }[]>([]);
   const [filter, setFilter] = useState("all");
+
+  const handleStatusChange = useCallback((shipmentId: string, newStatus: string) => {
+    setTrackings((prev) =>
+      prev.map((t) =>
+        t.id === shipmentId ? { ...t, status: newStatus, updatedAt: new Date().toISOString() } : t
+      )
+    );
+  }, []);
+
+  const { connected: sseConnected, updateCount } = useEventStream({
+    onUpdate: () => fetchTrackings(),
+    onStatusChange: handleStatusChange,
+  });
 
   useEffect(() => {
     fetchTrackings();
@@ -115,8 +129,22 @@ export function DashboardContent({ userId }: { userId: string }) {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Activity className="w-4 h-4 text-cyber-green animate-pulse" />
-          <span className="text-xs text-cyber-green font-mono">LIVE</span>
+          {sseConnected ? (
+            <>
+              <Wifi className="w-4 h-4 text-cyber-green" />
+              <span className="text-xs text-cyber-green font-mono">LIVE</span>
+              {updateCount > 0 && (
+                <span className="text-[10px] text-cyber-muted font-mono">
+                  ({updateCount} updates)
+                </span>
+              )}
+            </>
+          ) : (
+            <>
+              <WifiOff className="w-4 h-4 text-cyber-muted" />
+              <span className="text-xs text-cyber-muted font-mono">OFFLINE</span>
+            </>
+          )}
         </div>
       </div>
 

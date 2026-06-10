@@ -1,10 +1,13 @@
 import asyncio
+import json
 import logging
 from datetime import datetime
 from typing import Optional
+import redis
 from services.queue import JobQueue
 from services.scraper import get_scraper
 from services.predictor import ETAPredictor
+from services.config import settings
 from database.connection import SessionLocal
 from database.models import Shipment, ShipmentEvent, Carrier, ScrapeJob
 
@@ -26,6 +29,7 @@ class ScrapeWorker:
         self._processed = 0
         self._failed = 0
         self._started_at: Optional[datetime] = None
+        self._redis_pub = redis.from_url(settings.redis_url, decode_responses=True)
 
     async def start(self):
         if self.running:
@@ -183,6 +187,15 @@ class ScrapeWorker:
                 scrape_job.completed_at = datetime.utcnow()
                 db.commit()
 
+                self._publish_event(
+                    event_type="shipment_updated",
+                    shipment_id=shipment_id,
+                    tracking_number=tracking_number,
+                    carrier_slug=carrier_slug,
+                    status=result.status,
+                    user_id=shipment.user_id,
+                )
+
                 self._processed += 1
                 logger.info(f"Completed {carrier_slug}:{tracking_number}")
 
@@ -208,6 +221,29 @@ class ScrapeWorker:
 
             finally:
                 db.close()
+
+    def _publish_event(self, event_type: str, shipment_id: str,
+                       tracking_number: str, carrier_slug: str,
+                       status: str, user_id: str | None = None,
+                       data: dict | None = None):
+        event = {
+            "type": event_type,
+            "shipment_id": shipment_id,
+            "tracking_number": tracking_number,
+            "carrier_slug": carrier_slug,
+            "status": status,
+            "user_id": user_id,
+            "data": data,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+        try:
+            self._redis_pub.publish("parcelstats:global", json.dumps(event))
+            if user_id:
+                self._redis_pub.publish(
+                    f"parcelstats:user:{user_id}", json.dumps(event)
+                )
+        except Exception as e:
+            logger.warning(f"Failed to publish event: {e}")
 
     def get_status(self) -> dict:
         queue_stats = self.queue.get_stats()

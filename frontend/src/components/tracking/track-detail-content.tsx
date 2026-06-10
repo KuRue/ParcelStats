@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
 import { CyberCard, StatCard } from "@/components/ui/cyber-card";
 import { TrackingTimeline, ConfidenceBar, StatusBadge } from "@/components/tracking/timeline";
+import { useEventStream } from "@/hooks/use-event-stream";
 import {
   Package,
   Clock,
@@ -61,6 +62,15 @@ export function TrackDetailContent({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const loadData = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/trackings/${shipmentId}`);
+      if (res.ok) {
+        setData(await res.json());
+      }
+    } catch {}
+  }, [shipmentId]);
+
   useEffect(() => {
     async function load() {
       try {
@@ -78,6 +88,15 @@ export function TrackDetailContent({
     }
     load();
   }, [shipmentId]);
+
+  useEventStream({
+    onUpdate: (event) => {
+      if (event.shipment_id === shipmentId) {
+        loadData();
+      }
+    },
+    enabled: !!data && data.status.toLowerCase() !== "delivered",
+  });
 
   if (loading) {
     return (
