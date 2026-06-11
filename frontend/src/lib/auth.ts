@@ -1,8 +1,6 @@
 import NextAuth, { type NextAuthConfig } from "next-auth";
-import Credentials from "next-auth/providers/credentials";
 import Google from "next-auth/providers/google";
 import { eq } from "drizzle-orm";
-import bcrypt from "bcryptjs";
 import { db } from "./db";
 import * as schema from "./db-schema";
 
@@ -17,45 +15,7 @@ export function isAdminEmail(email: string | null | undefined): boolean {
   return !!email && adminEmails().includes(email.toLowerCase());
 }
 
-const providers: NextAuthConfig["providers"] = [
-  Credentials({
-    name: "credentials",
-    credentials: {
-      email: { label: "Email", type: "email" },
-      password: { label: "Password", type: "password" },
-    },
-    async authorize(credentials) {
-      if (!credentials?.email || !credentials?.password) {
-        return null;
-      }
-
-      const email = credentials.email as string;
-      const password = credentials.password as string;
-
-      const [user] = await db
-        .select()
-        .from(schema.users)
-        .where(eq(schema.users.email, email))
-        .limit(1);
-
-      if (!user || !user.passwordHash) {
-        return null;
-      }
-
-      const isValid = await bcrypt.compare(password, user.passwordHash);
-      if (!isValid) {
-        return null;
-      }
-
-      return {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        image: user.image,
-      };
-    },
-  }),
-];
+const providers: NextAuthConfig["providers"] = [];
 
 if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
   providers.push(
