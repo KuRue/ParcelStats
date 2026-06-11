@@ -8,7 +8,7 @@ services:
     container_name: parcelstats-frontend
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "${FRONTEND_PORT:-3000}:3000"
     environment:
       - DATABASE_URL=postgresql://parcelstats:${DB_PASSWORD:-parcelstats}@postgres:5432/parcelstats
       - REDIS_URL=redis://redis:6379
