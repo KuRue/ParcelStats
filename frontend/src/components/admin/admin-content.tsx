@@ -9,7 +9,6 @@ import {
   Activity,
   Loader2,
   RefreshCw,
-  Database,
   Server,
   AlertTriangle,
 } from "lucide-react";
@@ -77,12 +76,6 @@ interface ModelInfo {
   } | null;
 }
 
-const FALLBACK_LABELS: Record<string, string> = {
-  fallback_route_stats: "Route stats fallback",
-  carrier_estimate: "Carrier estimate",
-  baseline_eta: "Baseline heuristic",
-};
-
 export function AdminContent() {
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [model, setModel] = useState<ModelInfo | null>(null);
@@ -104,15 +97,7 @@ export function AdminContent() {
   }, [loadAll]);
 
   const runAction = useCallback(
-    async (action: "retrain" | "seed") => {
-      if (
-        action === "seed" &&
-        !window.confirm(
-          "Seed 2000 synthetic shipments into the database for training?"
-        )
-      ) {
-        return;
-      }
+    async (action: "retrain") => {
       setBusy(true);
       setActionMsg(null);
       try {
@@ -124,7 +109,7 @@ export function AdminContent() {
         const body = await res.json();
         setActionMsg(
           res.ok
-            ? `${action === "retrain" ? "Retraining" : "Seeding"} started (${body.status ?? "ok"})`
+            ? `Retraining started (${body.status ?? "ok"})`
             : `Failed: ${body.error ?? res.status}`
         );
       } catch {
@@ -335,14 +320,6 @@ export function AdminContent() {
                 <RefreshCw className="w-3 h-3 mr-1 inline" />
                 Retrain
               </button>
-              <button
-                onClick={() => runAction("seed")}
-                disabled={busy}
-                className="cyber-btn text-xs disabled:opacity-50"
-              >
-                <Database className="w-3 h-3 mr-1 inline" />
-                Seed Data
-              </button>
             </div>
           </div>
 
@@ -383,7 +360,7 @@ export function AdminContent() {
             </div>
           ) : (
             <p className="text-xs text-cyber-muted font-mono">
-              No trained model yet. Seed data and retrain to bootstrap.
+              No trained model yet. Add real delivered shipments, then retrain.
             </p>
           )}
         </CyberCard>
@@ -391,20 +368,19 @@ export function AdminContent() {
         <CyberCard terminal title="Prediction Sources">
           <h2 className="text-sm font-display tracking-wide text-cyber-purple mb-4 flex items-center gap-2">
             <Activity className="w-4 h-4" />
-            Who answered: model vs fallbacks
+            Prediction volume by model version
           </h2>
           {model?.sourceBreakdown.length ? (
             <div className="space-y-2">
               {model.sourceBreakdown.map((s) => {
-                const isModel = !FALLBACK_LABELS[s.modelVersion];
                 const pct = totalPredictions
                   ? Math.round((s.count / totalPredictions) * 100)
                   : 0;
                 return (
                   <div key={s.modelVersion}>
                     <div className="flex justify-between text-xs font-mono mb-1">
-                      <span className={isModel ? "text-cyber-cyan" : "text-cyber-muted"}>
-                        {FALLBACK_LABELS[s.modelVersion] ?? `Model ${s.modelVersion}`}
+                      <span className="text-cyber-cyan">
+                        Model {s.modelVersion}
                       </span>
                       <span className="text-cyber-text">
                         {s.count} ({pct}%) · {s.avgConfidence}% conf
@@ -412,7 +388,7 @@ export function AdminContent() {
                     </div>
                     <div className="h-1.5 bg-cyber-border/30 rounded">
                       <div
-                        className={`h-full rounded ${isModel ? "bg-cyber-cyan" : "bg-cyber-purple/60"}`}
+                        className="h-full rounded bg-cyber-cyan"
                         style={{ width: `${pct}%` }}
                       />
                     </div>
@@ -451,9 +427,7 @@ export function AdminContent() {
               <div className="space-y-1">
                 {Object.entries(model.accuracy.by_model).map(([v, b]) => (
                   <div key={v} className="flex justify-between text-xs font-mono">
-                    <span className="text-cyber-muted">
-                      {FALLBACK_LABELS[v] ?? v}
-                    </span>
+                    <span className="text-cyber-muted">{v}</span>
                     <span className="text-cyber-text">
                       ±{b.mae_days ?? 0}d over {b.count}
                     </span>

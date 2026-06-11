@@ -4,8 +4,12 @@ import pandas as pd
 import uuid
 from datetime import datetime, timedelta
 from database.connection import SessionLocal
-from database.models import Shipment, Prediction, CarrierRoute, ModelVersion, Carrier
+from database.models import Shipment, Prediction, ModelVersion, Carrier
 from services.config import settings
+from services.knowledge import (
+    country_from_region, haversine_km, estimate_hops,
+    get_seasonal_multiplier,
+)
 from services.timeutil import utcnow, to_naive_utc, parse_to_naive_utc
 
 
@@ -51,66 +55,102 @@ class ETAPredictor:
 
     def predict(self, carrier_slug: str, origin_region: str, dest_region: str,
                 service_type: str = "standard", weight_kg: float = 1.0,
-                shipped_at: datetime | None = None) -> dict | None:
+                shipped_at: datetime | None = None,
+                origin_lat: float | None = None, origin_lng: float | None = None,
+                dest_lat: float | None = None, dest_lng: float | None = None) -> dict | None:
+        ref_date = shipped_at or utcnow()
+
+        origin_country = country_from_region(origin_region)
+        dest_country = country_from_region(dest_region)
+
+        distance_km = 0.0
+        if origin_lat and origin_lng and dest_lat and dest_lng:
+            distance_km = haversine_km(origin_lat, origin_lng, dest_lat, dest_lng)
+
+        hops = estimate_hops(origin_country, dest_country, carrier_slug)
+        seasonal = get_seasonal_multiplier(ref_date.month)
+        is_domestic = 1 if origin_country == dest_country else 0
+
         if not self.is_ready:
             return None
 
-        ref_date = shipped_at or utcnow()
+        try:
+            features = self.metadata["features"]
+            has_old_features = "origin_region" in features
 
-        encoded = {
-            "carrier_slug": self._encode("carrier_slug", carrier_slug),
-            "origin_region": self._encode("origin_region", origin_region.lower()),
-            "dest_region": self._encode("dest_region", dest_region.lower()),
-            "service_type": self._encode("service_type", service_type),
-        }
-        # The model has never seen this carrier or lane, so its output would be
-        # meaningless - bail out and let the fallback chain handle it.
-        if encoded["carrier_slug"] == -1:
+            encoded = {
+                "carrier_slug": self._encode("carrier_slug", carrier_slug),
+                "service_type": self._encode("service_type", service_type),
+            }
+            if has_old_features:
+                encoded["origin_region"] = self._encode("origin_region", origin_region.lower())
+                encoded["dest_region"] = self._encode("dest_region", dest_region.lower())
+            else:
+                encoded["origin_country"] = self._encode("origin_country", origin_country)
+                encoded["dest_country"] = self._encode("dest_country", dest_country)
+
+            if encoded["carrier_slug"] == -1:
+                return None
+            origin_ok = encoded.get("origin_region", encoded.get("origin_country", -1))
+            dest_ok = encoded.get("dest_region", encoded.get("dest_country", -1))
+            if origin_ok == -1 and dest_ok == -1:
+                return None
+            unknown_count = sum(1 for v in encoded.values() if v == -1)
+
+            row = {}
+            for f in features:
+                if f in encoded:
+                    row[f] = encoded[f]
+                elif f == "weight_kg":
+                    row[f] = weight_kg
+                elif f == "distance_km":
+                    row[f] = distance_km
+                elif f == "estimated_hops":
+                    row[f] = hops
+                elif f == "shipped_month":
+                    row[f] = ref_date.month
+                elif f == "shipped_dow":
+                    row[f] = ref_date.weekday()
+                elif f == "seasonal_multiplier":
+                    row[f] = seasonal
+                elif f == "is_domestic":
+                    row[f] = is_domestic
+                else:
+                    row[f] = 0
+
+            X = pd.DataFrame([row])[features]
+
+            median_days = float(self.model_median.predict(X)[0])
+            p10_days = float(self.model_p10.predict(X)[0])
+            p90_days = float(self.model_p90.predict(X)[0])
+
+            p10_days = max(0.5, min(p10_days, median_days))
+            p90_days = max(median_days, p90_days)
+
+            median_days *= seasonal
+            p10_days *= seasonal
+            p90_days *= seasonal
+
+            predicted_delivery = ref_date + timedelta(days=median_days)
+            confidence_low = ref_date + timedelta(days=p10_days)
+            confidence_high = ref_date + timedelta(days=p90_days)
+            confidence_pct = self._calculate_confidence(median_days, p10_days, p90_days)
+            if unknown_count:
+                confidence_pct = min(confidence_pct, 60.0 - 10.0 * (unknown_count - 1))
+
+            return {
+                "predicted_delivery": predicted_delivery.isoformat(),
+                "confidence_low": confidence_low.isoformat(),
+                "confidence_high": confidence_high.isoformat(),
+                "confidence_pct": round(confidence_pct, 2),
+                "model_version": self.version,
+                "median_days": round(median_days, 2),
+                "p10_days": round(p10_days, 2),
+                "p90_days": round(p90_days, 2),
+                "prediction_source": "ml",
+            }
+        except Exception:
             return None
-        if encoded["origin_region"] == -1 and encoded["dest_region"] == -1:
-            return None
-        unknown_count = sum(1 for v in encoded.values() if v == -1)
-
-        features = self.metadata["features"]
-        row = {}
-        for f in features:
-            if f in encoded:
-                row[f] = encoded[f]
-            elif f == "weight_kg":
-                row[f] = weight_kg
-            elif f == "shipped_month":
-                row[f] = ref_date.month
-            elif f == "shipped_dow":
-                row[f] = ref_date.weekday()
-
-        X = pd.DataFrame([row])[features]
-
-        median_days = float(self.model_median.predict(X)[0])
-        p10_days = float(self.model_p10.predict(X)[0])
-        p90_days = float(self.model_p90.predict(X)[0])
-
-        p10_days = max(0.5, min(p10_days, median_days))
-        p90_days = max(median_days, p90_days)
-
-        predicted_delivery = ref_date + timedelta(days=median_days)
-        confidence_low = ref_date + timedelta(days=p10_days)
-        confidence_high = ref_date + timedelta(days=p90_days)
-        confidence_pct = self._calculate_confidence(median_days, p10_days, p90_days)
-        # Partially-unseen inputs (e.g. unknown service type or one region)
-        # still predict, but with reduced confidence.
-        if unknown_count:
-            confidence_pct = min(confidence_pct, 60.0 - 10.0 * (unknown_count - 1))
-
-        return {
-            "predicted_delivery": predicted_delivery.isoformat(),
-            "confidence_low": confidence_low.isoformat(),
-            "confidence_high": confidence_high.isoformat(),
-            "confidence_pct": round(confidence_pct, 2),
-            "model_version": self.version,
-            "median_days": round(median_days, 2),
-            "p10_days": round(p10_days, 2),
-            "p90_days": round(p90_days, 2),
-        }
 
     def _encode(self, feature: str, value: str) -> int:
         cats = self.metadata.get("categories", {}).get(feature, {})
@@ -134,6 +174,8 @@ class ETAPredictor:
                 return None
             if self._is_delivered(shipment):
                 return None
+            if not self._is_predictable_shipment(shipment):
+                return None
 
             carrier = db.query(Carrier).filter(Carrier.id == shipment.carrier_id).first()
             if not carrier:
@@ -142,79 +184,27 @@ class ETAPredictor:
             origin = (shipment.origin_name or "unknown").split(",")[-1].strip()
             dest = (shipment.dest_name or "unknown").split(",")[-1].strip()
 
-            result = None
-            if self.is_ready:
-                result = self.predict(
-                    carrier_slug=carrier.slug,
-                    origin_region=origin,
-                    dest_region=dest,
-                    service_type=shipment.service_type or "standard",
-                    weight_kg=float(shipment.weight_kg) if shipment.weight_kg else 1.0,
-                    shipped_at=shipment.shipped_at,
-                )
+            if not self.is_ready:
+                return None
 
-            if not result:
-                result = self.fallback_estimate(
-                    carrier_slug=carrier.slug,
-                    origin_region=origin,
-                    dest_region=dest,
-                    service_type=shipment.service_type or "standard",
-                    ref_date=shipment.shipped_at,
-                )
-
-            if not result:
-                result = self._carrier_estimate(shipment)
-
-            if not result:
-                result = self._baseline_estimate(shipment, carrier.slug)
+            result = self.predict(
+                carrier_slug=carrier.slug,
+                origin_region=origin,
+                dest_region=dest,
+                service_type=shipment.service_type or "standard",
+                weight_kg=float(shipment.weight_kg) if shipment.weight_kg else 1.0,
+                shipped_at=shipment.shipped_at,
+                origin_lat=float(shipment.origin_lat) if shipment.origin_lat else None,
+                origin_lng=float(shipment.origin_lng) if shipment.origin_lng else None,
+                dest_lat=float(shipment.dest_lat) if shipment.dest_lat else None,
+                dest_lng=float(shipment.dest_lng) if shipment.dest_lng else None,
+            )
 
             if result:
                 db.add(self._prediction_from_result(shipment_id, result))
                 db.commit()
 
             return result
-        finally:
-            db.close()
-
-    def fallback_estimate(
-        self,
-        carrier_slug: str,
-        origin_region: str,
-        dest_region: str,
-        service_type: str | None = None,
-        ref_date: datetime | None = None,
-    ) -> dict | None:
-        db = SessionLocal()
-        try:
-            carrier = db.query(Carrier).filter(Carrier.slug == carrier_slug).first()
-            if not carrier:
-                return None
-
-            query = (
-                db.query(CarrierRoute)
-                .filter(
-                    CarrierRoute.carrier_id == carrier.id,
-                    CarrierRoute.origin_region == origin_region.lower(),
-                    CarrierRoute.dest_region == dest_region.lower(),
-                )
-            )
-            route = query.filter(CarrierRoute.service_type == service_type).first()
-            if not route:
-                route = query.order_by(CarrierRoute.sample_count.desc()).first()
-
-            if not route:
-                return None
-
-            ref = self._naive_utc(ref_date) or utcnow()
-            return {
-                "predicted_delivery": (ref + timedelta(days=float(route.median_days))).isoformat(),
-                "confidence_low": (ref + timedelta(days=float(route.p10_days))).isoformat(),
-                "confidence_high": (ref + timedelta(days=float(route.p90_days))).isoformat(),
-                "confidence_pct": max(10, min(70, 70 - (float(route.p90_days) - float(route.p10_days)) * 5)),
-                "model_version": "fallback_route_stats",
-                "median_days": float(route.median_days),
-                "sample_count": route.sample_count,
-            }
         finally:
             db.close()
 
@@ -230,69 +220,34 @@ class ETAPredictor:
             features=result.get("features"),
         )
 
-    def _carrier_estimate(self, shipment: Shipment) -> dict | None:
-        if not shipment.estimated_delivery:
-            return None
-
-        predicted = shipment.estimated_delivery
-        predicted = self._naive_utc(predicted) or predicted
-        return {
-            "predicted_delivery": predicted.isoformat(),
-            "confidence_low": (predicted - timedelta(days=1)).isoformat(),
-            "confidence_high": (predicted + timedelta(days=1)).isoformat(),
-            "confidence_pct": 70,
-            "model_version": "carrier_estimate",
-            "features": {"source": "carrier_estimated_delivery"},
-        }
-
-    def _baseline_estimate(self, shipment: Shipment, carrier_slug: str) -> dict:
-        ref = self._naive_utc(shipment.shipped_at) or utcnow()
-        median_days = self._baseline_days(carrier_slug, shipment.origin_name, shipment.dest_name)
-        predicted = ref + timedelta(days=median_days)
-        minimum_prediction = utcnow() + timedelta(days=1)
-        if predicted < minimum_prediction:
-            predicted = minimum_prediction
-
-        return {
-            "predicted_delivery": predicted.isoformat(),
-            "confidence_low": (predicted - timedelta(days=2)).isoformat(),
-            "confidence_high": (predicted + timedelta(days=4)).isoformat(),
-            "confidence_pct": 45,
-            "model_version": "baseline_eta",
-            "median_days": median_days,
-            "features": {
-                "carrier_slug": carrier_slug,
-                "source": "baseline",
-            },
-        }
-
-    def _baseline_days(self, carrier_slug: str, origin_name: str | None, dest_name: str | None) -> int:
-        defaults = {
-            "usps": 4,
-            "ups": 4,
-            "fedex": 4,
-            "dhl-express": 5,
-            "speedpak": 10,
-        }
-        days = defaults.get(carrier_slug, 7)
-
-        origin_country = self._country_token(origin_name)
-        dest_country = self._country_token(dest_name)
-        if origin_country and dest_country and origin_country != dest_country:
-            days += 3
-
-        return days
-
-    def _country_token(self, location_name: str | None) -> str | None:
-        if not location_name or "," not in location_name:
-            return None
-        return location_name.split(",")[-1].strip().lower()
-
     def _is_delivered(self, shipment: Shipment) -> bool:
         status = (shipment.status or "").lower()
         return shipment.delivered_at is not None or (
             "deliver" in status and "fail" not in status and "exception" not in status
         )
+
+    def _is_predictable_shipment(self, shipment: Shipment) -> bool:
+        status = (shipment.status or "").lower()
+        blocked_terms = [
+            "exception",
+            "error",
+            "fail",
+            "not_found",
+            "not found",
+            "required",
+            "auth",
+            "blocked",
+            "unavailable",
+        ]
+        if any(term in status for term in blocked_terms):
+            return False
+        if not shipment.shipped_at:
+            return False
+        if not shipment.origin_name or not shipment.dest_name:
+            return False
+        if len(shipment.events or []) < 2:
+            return False
+        return True
 
     def _to_datetime(self, value):
         return parse_to_naive_utc(value)

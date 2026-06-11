@@ -85,13 +85,6 @@ class MLServiceClient {
     return this.request("/health");
   }
 
-  async seedSyntheticData(count: number) {
-    return this.request("/train/seed", {
-      method: "POST",
-      body: JSON.stringify({ count }),
-    });
-  }
-
   async triggerRetrain() {
     return this.request("/train/trigger", { method: "POST" });
   }

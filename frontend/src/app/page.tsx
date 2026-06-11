@@ -57,8 +57,8 @@ export default async function HomePage() {
 
             <p className="text-cyber-muted text-lg md:text-xl max-w-2xl mx-auto mb-12">
               Community-powered parcel tracking that gets smarter with every
-              shipment. AI-driven ETA predictions with confidence intervals
-              across 25+ international carriers.
+              real delivery. AI-driven ETA predictions with confidence intervals
+              appear once enough completed shipment history exists.
             </p>
 
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
@@ -105,7 +105,7 @@ export default async function HomePage() {
                 </h3>
                 <p className="text-cyber-muted text-sm">
                   Our ML model analyzes route patterns, historical data, and
-                  carrier performance to predict delivery with confidence levels.
+                  carrier performance from real delivered shipments.
                 </p>
               </div>
 
@@ -117,8 +117,8 @@ export default async function HomePage() {
                   03. Improve
                 </h3>
                 <p className="text-cyber-muted text-sm">
-                  Every tracked package feeds our model. More users = better
-                  predictions. The network effect makes everyone smarter.
+                  Every real delivered package can feed the model. More users =
+                  better predictions from observed delivery outcomes.
                 </p>
               </div>
             </div>

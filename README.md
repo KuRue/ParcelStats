@@ -143,7 +143,7 @@ All data persists in Docker volumes. Back up the `postgres-data` volume regularl
 
 Users listed in `ADMIN_EMAILS` see an **Admin** link in the navbar
 (`/admin`) with system stats, scraper health, model versions and accuracy,
-prediction-source breakdown, and retrain/seed controls.
+prediction volume by model version, and retrain controls.
 
 ## Carrier Support
 
@@ -194,12 +194,13 @@ UPS defaults to the production API host `https://onlinetools.ups.com`. Set `UPS_
 4. **Confidence Score** — Calculated from the spread between P10 and P90
 5. **Retraining** — Automatic weekly retraining as data grows
 
-When there is not enough completed shipment history to train the XGBoost model, ParcelStats stores fallback predictions from carrier-provided ETAs, route statistics, or conservative carrier baselines. These predictions are replaced by stronger model predictions once enough data exists.
+ParcelStats does not create fallback, synthetic, or baseline ETAs. If there is not enough real completed shipment history for a carrier or lane, the app shows no prediction until enough user-submitted shipments have been delivered and used for training.
 
 ### Improving Predictions
 
-- Track more packages → more training data
+- Track more real packages → more training data
 - Different carriers and routes → better generalization
+- Delivered shipments with real carrier events are the only training source
 - Over time, confidence intervals narrow as the model learns patterns
 
 ## Project Structure

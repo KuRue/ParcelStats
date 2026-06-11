@@ -9,6 +9,10 @@ import uuid
 from sklearn.model_selection import cross_val_score
 from xgboost import XGBRegressor
 from services.timeutil import utcnow
+from services.knowledge import (
+    country_from_region, haversine_km, estimate_hops,
+    get_seasonal_multiplier,
+)
 
 
 class ModelTrainer:
@@ -21,7 +25,11 @@ class ModelTrainer:
         try:
             completed = (
                 db.query(Shipment)
-                .filter(Shipment.shipped_at.isnot(None), Shipment.delivered_at.isnot(None))
+                .filter(
+                    Shipment.shipped_at.isnot(None),
+                    Shipment.delivered_at.isnot(None),
+                    Shipment.source == "user",
+                )
                 .all()
             )
 
@@ -30,6 +38,9 @@ class ModelTrainer:
 
             rows = []
             for s in completed:
+                if not _has_real_event_history(s):
+                    continue
+
                 duration_days = (s.delivered_at - s.shipped_at).total_seconds() / 86400
                 if duration_days <= 0:
                     continue
@@ -40,15 +51,33 @@ class ModelTrainer:
 
                 origin_region = (s.origin_name or "unknown").split(",")[-1].strip().lower()
                 dest_region = (s.dest_name or "unknown").split(",")[-1].strip().lower()
+                origin_country = country_from_region(origin_region)
+                dest_country = country_from_region(dest_region)
+
+                origin_lat = float(s.origin_lat) if s.origin_lat else None
+                origin_lng = float(s.origin_lng) if s.origin_lng else None
+                dest_lat = float(s.dest_lat) if s.dest_lat else None
+                dest_lng = float(s.dest_lng) if s.dest_lng else None
+
+                distance_km = 0.0
+                if origin_lat and origin_lng and dest_lat and dest_lng:
+                    distance_km = haversine_km(origin_lat, origin_lng, dest_lat, dest_lng)
+
+                hops = estimate_hops(origin_country, dest_country, carrier.slug)
+                seasonal = get_seasonal_multiplier(s.shipped_at.month)
 
                 rows.append({
                     "carrier_slug": carrier.slug,
-                    "origin_region": origin_region,
-                    "dest_region": dest_region,
+                    "origin_country": origin_country,
+                    "dest_country": dest_country,
                     "service_type": s.service_type or "standard",
                     "weight_kg": float(s.weight_kg) if s.weight_kg else 1.0,
+                    "distance_km": distance_km,
+                    "estimated_hops": hops,
                     "shipped_month": s.shipped_at.month,
                     "shipped_dow": s.shipped_at.weekday(),
+                    "seasonal_multiplier": seasonal,
+                    "is_domestic": 1 if origin_country == dest_country else 0,
                     "duration_days": duration_days,
                 })
 
@@ -57,11 +86,14 @@ class ModelTrainer:
 
             df = pd.DataFrame(rows)
 
-            cat_cols = ["carrier_slug", "origin_region", "dest_region", "service_type"]
+            cat_cols = ["carrier_slug", "origin_country", "dest_country", "service_type"]
             for col in cat_cols:
                 df[col] = pd.Categorical(df[col]).codes
 
-            features = cat_cols + ["weight_kg", "shipped_month", "shipped_dow"]
+            features = cat_cols + [
+                "weight_kg", "distance_km", "estimated_hops",
+                "shipped_month", "shipped_dow", "seasonal_multiplier", "is_domestic",
+            ]
             X = df[features]
             y = df["duration_days"]
 
@@ -127,12 +159,19 @@ class ModelTrainer:
     def _update_carrier_routes(self, db):
         completed = (
             db.query(Shipment)
-            .filter(Shipment.shipped_at.isnot(None), Shipment.delivered_at.isnot(None))
+            .filter(
+                Shipment.shipped_at.isnot(None),
+                Shipment.delivered_at.isnot(None),
+                Shipment.source == "user",
+            )
             .all()
         )
 
         route_data = {}
         for s in completed:
+            if not _has_real_event_history(s):
+                continue
+
             carrier = db.query(Carrier).filter(Carrier.id == s.carrier_id).first()
             if not carrier:
                 continue
@@ -184,3 +223,10 @@ class ModelTrainer:
                 ))
 
         db.commit()
+
+
+def _has_real_event_history(shipment: Shipment) -> bool:
+    events = shipment.events or []
+    if len(events) < 2:
+        return False
+    return any(event.raw_data for event in events)

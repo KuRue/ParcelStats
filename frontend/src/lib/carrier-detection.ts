@@ -7,7 +7,7 @@ export function detectCarrierSlug(value: string): string | null {
 
   if (!trackingNumber) return null;
   if (/^1Z[0-9A-Z]{16}$/.test(trackingNumber)) return "ups";
-  if (/^E[ES][0-9A-Z]{20,}$/.test(trackingNumber)) return "speedpak";
+  if (isSpeedPakTrackingNumber(trackingNumber)) return "speedpak";
   if (/^[A-Z]{2}\d{9}[A-Z]{2}$/.test(trackingNumber)) return "usps";
   if (/^(92|93|94|95)\d{20,24}$/.test(trackingNumber)) return "usps";
   if (/^\d{10}$/.test(trackingNumber)) return "dhl-express";
@@ -17,4 +17,9 @@ export function detectCarrierSlug(value: string): string | null {
   if (/^\d{20,22}$/.test(trackingNumber)) return "fedex";
 
   return null;
+}
+
+export function isSpeedPakTrackingNumber(value: string): boolean {
+  const trackingNumber = normalizeTrackingNumber(value);
+  return /^E[ESXM][0-9A-Z]{20,38}$/.test(trackingNumber);
 }

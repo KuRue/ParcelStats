@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { shipments, carriers, predictions, carrierRoutes } from "@/lib/db-schema";
-import { sql, desc, eq } from "drizzle-orm";
+import { shipments, carriers, predictions } from "@/lib/db-schema";
+import { sql, desc, eq, notInArray } from "drizzle-orm";
 import { mlClient } from "@/lib/ml-client";
 
 export const dynamic = "force-dynamic";
+
+const LEGACY_FALLBACK_MODELS = ["fallback_route_stats", "carrier_estimate", "baseline_eta"];
 
 interface AccuracyBucket {
   count: number;
@@ -33,7 +35,8 @@ export async function GET() {
 
   const [predictionResult] = await db
     .select({ count: sql<number>`count(*)::int` })
-    .from(predictions);
+    .from(predictions)
+    .where(notInArray(predictions.modelVersion, LEGACY_FALLBACK_MODELS));
 
   const carrierCount = await db
     .select({
@@ -50,19 +53,37 @@ export async function GET() {
 
   const routeStats = await db
     .select({
-      route: sql<string>`${carrierRoutes.originRegion} || ' → ' || ${carrierRoutes.destRegion}`,
-      avgDays: carrierRoutes.avgDays,
-      sampleCount: carrierRoutes.sampleCount,
+      route: sql<string>`
+        lower(trim(regexp_replace(coalesce(${shipments.originName}, 'unknown'), '^.*,\\s*', '')))
+        || ' → ' ||
+        lower(trim(regexp_replace(coalesce(${shipments.destName}, 'unknown'), '^.*,\\s*', '')))
+      `,
+      avgDays: sql<number>`
+        avg(extract(epoch from (${shipments.deliveredAt} - ${shipments.shippedAt})) / 86400)::numeric(6,2)
+      `,
+      sampleCount: sql<number>`count(*)::int`,
     })
-    .from(carrierRoutes)
-    .orderBy(desc(carrierRoutes.sampleCount))
+    .from(shipments)
+    .where(sql`
+      ${shipments.source} = 'user'
+      and ${shipments.shippedAt} is not null
+      and ${shipments.deliveredAt} is not null
+      and ${shipments.originName} is not null
+      and ${shipments.destName} is not null
+    `)
+    .groupBy(sql`
+      lower(trim(regexp_replace(coalesce(${shipments.originName}, 'unknown'), '^.*,\\s*', ''))),
+      lower(trim(regexp_replace(coalesce(${shipments.destName}, 'unknown'), '^.*,\\s*', '')))
+    `)
+    .orderBy(desc(sql`count(*)`))
     .limit(10);
 
   const [avgConf] = await db
     .select({
       avg: sql<number>`coalesce(avg(${predictions.confidencePct}), 0)::numeric(5,2)`,
     })
-    .from(predictions);
+    .from(predictions)
+    .where(notInArray(predictions.modelVersion, LEGACY_FALLBACK_MODELS));
 
   const uniqueCarriers = await db
     .select({ count: sql<number>`count(distinct ${shipments.carrierId})::int` })
@@ -82,6 +103,10 @@ export async function GET() {
       count: c.count,
       avgDays: 0,
     })),
-    routeStats,
+    routeStats: routeStats.map((r) => ({
+      route: r.route,
+      avgDays: r.avgDays ? Number(r.avgDays) : 0,
+      sampleCount: r.sampleCount,
+    })),
   });
 }

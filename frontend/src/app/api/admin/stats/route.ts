@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { users, shipments, predictions } from "@/lib/db-schema";
-import { sql, desc, gte } from "drizzle-orm";
+import { sql, desc, gte, notInArray } from "drizzle-orm";
 import { requireAdmin } from "@/lib/auth";
 import { mlClient } from "@/lib/ml-client";
 
 export const dynamic = "force-dynamic";
+
+const LEGACY_FALLBACK_MODELS = ["fallback_route_stats", "carrier_estimate", "baseline_eta"];
 
 export async function GET() {
   const session = await requireAdmin();
@@ -63,7 +65,10 @@ export async function GET() {
       .where(gte(shipments.createdAt, sql`${twoWeeksAgo}::timestamptz`))
       .groupBy(sql`to_char(${shipments.createdAt}, 'YYYY-MM-DD')`)
       .orderBy(sql`to_char(${shipments.createdAt}, 'YYYY-MM-DD')`),
-    db.select({ total: sql<number>`count(*)::int` }).from(predictions),
+    db
+      .select({ total: sql<number>`count(*)::int` })
+      .from(predictions)
+      .where(notInArray(predictions.modelVersion, LEGACY_FALLBACK_MODELS)),
     db
       .select({
         name: users.name,

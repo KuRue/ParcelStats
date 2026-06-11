@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from database.connection import SessionLocal
 from database.models import Shipment, ScrapeJob
@@ -12,11 +12,6 @@ class ScrapeRequest(BaseModel):
     tracking_number: str
     carrier_slug: str
     shipment_id: str | None = None
-
-
-class CampaignRequest(BaseModel):
-    carriers: list[str] | None = None
-    per_carrier: int = 50
 
 
 @router.post("/trigger")
@@ -55,19 +50,6 @@ async def trigger_scrape(req: ScrapeRequest):
         "carrier": req.carrier_slug,
         "queue_size": queue.get_queue_size(),
     }
-
-
-@router.post("/campaign")
-async def start_campaign(req: CampaignRequest, background_tasks: BackgroundTasks):
-    per_carrier = max(10, min(200, req.per_carrier))
-    background_tasks.add_task(_run_campaign, req.carriers, per_carrier)
-    return {"status": "campaign_started", "per_carrier": per_carrier}
-
-
-def _run_campaign(carriers: list[str] | None, per_carrier: int):
-    from services.campaign import run_campaign
-    result = run_campaign(carriers=carriers, per_carrier=per_carrier)
-    return result
 
 
 @router.get("/status/{tracking_number}")

@@ -5,6 +5,7 @@ from services.predictor import ETAPredictor
 router = APIRouter()
 
 predictor = ETAPredictor()
+LEGACY_FALLBACK_MODELS = ["fallback_route_stats", "carrier_estimate", "baseline_eta"]
 
 
 class ETAPredictionRequest(BaseModel):
@@ -34,18 +35,11 @@ async def predict_eta(req: ETAPredictionRequest):
     )
 
     if not result:
-        result = predictor.fallback_estimate(
-            req.carrier_slug,
-            origin,
-            dest,
-            service_type=req.service_type or "standard",
-        )
-        if not result:
-            return {
-                "status": "no_model",
-                "message": "Insufficient historical data. Predictions improve as more shipments are tracked.",
-                "carrier": req.carrier_slug,
-            }
+        return {
+            "status": "no_model",
+            "message": "Insufficient real completed shipment history for this carrier or lane.",
+            "carrier": req.carrier_slug,
+        }
 
     return {"status": "ok", "prediction": result}
 
@@ -69,7 +63,10 @@ async def prediction_accuracy():
             )
             .join(Shipment, Prediction.shipment_id == Shipment.id)
             .join(Carrier, Shipment.carrier_id == Carrier.id)
-            .filter(Shipment.delivered_at.isnot(None))
+            .filter(
+                Shipment.delivered_at.isnot(None),
+                Prediction.model_version.notin_(LEGACY_FALLBACK_MODELS),
+            )
             .all()
         )
     finally:

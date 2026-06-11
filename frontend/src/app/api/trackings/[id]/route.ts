@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { shipments, carriers, shipmentEvents, predictions } from "@/lib/db-schema";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, notInArray } from "drizzle-orm";
 import { auth } from "@/lib/auth";
+
+const LEGACY_FALLBACK_MODELS = ["fallback_route_stats", "carrier_estimate", "baseline_eta"];
 
 export async function GET(
   _request: Request,
@@ -40,7 +42,12 @@ export async function GET(
   const [prediction] = await db
     .select()
     .from(predictions)
-    .where(eq(predictions.shipmentId, shipmentId))
+    .where(
+      and(
+        eq(predictions.shipmentId, shipmentId),
+        notInArray(predictions.modelVersion, LEGACY_FALLBACK_MODELS)
+      )
+    )
     .orderBy(desc(predictions.createdAt))
     .limit(1);
 

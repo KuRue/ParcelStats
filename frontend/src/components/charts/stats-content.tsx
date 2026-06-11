@@ -85,7 +85,7 @@ export function StatsContent() {
           label="Predictions Made"
           value={stats?.totalPredictions ?? 0}
           color="purple"
-          sub="AI powered"
+          sub="Model only"
         />
         <StatCard
           label="Avg Confidence"
@@ -243,7 +243,7 @@ export function StatsContent() {
         <div className="text-center py-6">
           <Brain className="w-10 h-10 text-cyber-cyan/40 mx-auto mb-3" />
           <p className="text-sm text-cyber-muted font-mono">
-            Every tracked shipment improves our AI predictions.
+            Every real delivered shipment improves model predictions.
           </p>
           <p className="text-xs text-cyber-muted/60 font-mono mt-1">
             More data = tighter confidence intervals = better ETAs

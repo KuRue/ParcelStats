@@ -1,12 +1,14 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { predictions } from "@/lib/db-schema";
-import { sql, desc } from "drizzle-orm";
+import { sql, desc, notInArray } from "drizzle-orm";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/auth";
 import { mlClient } from "@/lib/ml-client";
 
 export const dynamic = "force-dynamic";
+
+const LEGACY_FALLBACK_MODELS = ["fallback_route_stats", "carrier_estimate", "baseline_eta"];
 
 export async function GET() {
   const session = await requireAdmin();
@@ -14,8 +16,7 @@ export async function GET() {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  // Which prediction source actually served users: real model versions (vNNN)
-  // vs fallback chain (route stats / carrier estimate / baseline).
+  // Which trained model versions actually served users.
   const sourceBreakdown = await db
     .select({
       modelVersion: predictions.modelVersion,
@@ -23,6 +24,7 @@ export async function GET() {
       avgConfidence: sql<number>`coalesce(avg(${predictions.confidencePct}), 0)::numeric(5,1)`,
     })
     .from(predictions)
+    .where(notInArray(predictions.modelVersion, LEGACY_FALLBACK_MODELS))
     .groupBy(predictions.modelVersion)
     .orderBy(desc(sql`count(*)`));
 
@@ -45,8 +47,7 @@ export async function GET() {
 }
 
 const actionSchema = z.object({
-  action: z.enum(["retrain", "seed"]),
-  count: z.number().int().min(100).max(10000).optional(),
+  action: z.enum(["retrain"]),
 });
 
 export async function POST(request: Request) {
@@ -61,11 +62,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    if (parsed.data.action === "retrain") {
-      const result = await mlClient.triggerRetrain();
-      return NextResponse.json(result);
-    }
-    const result = await mlClient.seedSyntheticData(parsed.data.count ?? 2000);
+    const result = await mlClient.triggerRetrain();
     return NextResponse.json(result);
   } catch (error) {
     console.error("Admin model action failed:", error);

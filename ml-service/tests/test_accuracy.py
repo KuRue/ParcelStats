@@ -29,12 +29,12 @@ def test_groups_by_model_and_carrier():
     delivered = datetime(2026, 6, 10)
     rows = [
         row("s1", "usps", "v1", datetime(2026, 6, 1), datetime(2026, 6, 10, 12), delivered),
-        row("s2", "ups", "baseline_eta", datetime(2026, 6, 1), datetime(2026, 6, 13), delivered),
+        row("s2", "ups", "v2", datetime(2026, 6, 1), datetime(2026, 6, 13), delivered),
     ]
     result = summarize_accuracy(rows)
     assert result["overall"]["count"] == 2
     assert result["by_model"]["v1"]["within_1_day_pct"] == 100.0
-    assert result["by_model"]["baseline_eta"]["mae_days"] == 3.0
+    assert result["by_model"]["v2"]["mae_days"] == 3.0
     assert result["by_carrier"]["ups"]["count"] == 1
 
 

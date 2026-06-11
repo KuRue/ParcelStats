@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { shipments, carriers, shipmentEvents, predictions } from "@/lib/db-schema";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, notInArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { detectCarrierSlug, normalizeTrackingNumber } from "@/lib/carrier-detection";
@@ -16,6 +16,8 @@ function isUniqueViolation(error: unknown) {
     (error as { code?: string }).code === "23505"
   );
 }
+
+const LEGACY_FALLBACK_MODELS = ["fallback_route_stats", "carrier_estimate", "baseline_eta"];
 
 export async function GET() {
   const session = await auth();
@@ -42,8 +44,31 @@ export async function GET() {
       confidencePct: predictions.confidencePct,
     })
     .from(predictions)
+    .where(notInArray(predictions.modelVersion, LEGACY_FALLBACK_MODELS))
     .orderBy(predictions.shipmentId, desc(predictions.createdAt))
     .as("latest_predictions");
+
+  // Ordered trail of event coordinates per shipment, for drawing the
+  // traveled path on the dashboard globe.
+  const eventPaths = db
+    .select({
+      shipmentId: shipmentEvents.shipmentId,
+      points: sql<[number, number][]>`
+        json_agg(
+          json_build_array(
+            ${shipmentEvents.locationLat}::float,
+            ${shipmentEvents.locationLng}::float
+          )
+          order by ${shipmentEvents.eventTime} asc
+        )
+      `.as("points"),
+    })
+    .from(shipmentEvents)
+    .where(
+      sql`${shipmentEvents.locationLat} is not null and ${shipmentEvents.locationLng} is not null`
+    )
+    .groupBy(shipmentEvents.shipmentId)
+    .as("event_paths");
 
   const rows = await db
     .select({
@@ -68,11 +93,13 @@ export async function GET() {
       lastLng: latestEvents.locationLng,
       predictedDelivery: latestPredictions.predictedDelivery,
       confidencePct: latestPredictions.confidencePct,
+      path: eventPaths.points,
     })
     .from(shipments)
     .innerJoin(carriers, eq(shipments.carrierId, carriers.id))
     .leftJoin(latestEvents, eq(latestEvents.shipmentId, shipments.id))
     .leftJoin(latestPredictions, eq(latestPredictions.shipmentId, shipments.id))
+    .leftJoin(eventPaths, eq(eventPaths.shipmentId, shipments.id))
     .where(eq(shipments.userId, session.user.id))
     .orderBy(desc(shipments.updatedAt));
 
@@ -84,6 +111,7 @@ export async function GET() {
     lastLat: s.lastLat || null,
     lastLng: s.lastLng || null,
     confidencePct: confidencePct ? parseFloat(confidencePct) : null,
+    path: s.path ?? [],
   }));
 
   return NextResponse.json(enriched);
