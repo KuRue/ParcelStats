@@ -188,36 +188,57 @@ class RouteResearchAgent:
         if not self.available:
             return {"researched": 0}
 
+        from database.models import Shipment
+        from services.knowledge import country_from_region
+
         close_session = db_session is None
         db = db_session or SessionLocal()
         try:
-            from sqlalchemy import text
-            rows = db.execute(
-                text("""
-                    SELECT DISTINCT c.slug, c.id as carrier_id,
-                           country_from_region(s.origin_name) as oc,
-                           country_from_region(s.dest_name) as dc
-                    FROM shipments s
-                    JOIN carriers c ON c.id = s.carrier_id
-                    WHERE s.delivered_at IS NULL
-                      AND NOT EXISTS (
-                          SELECT 1 FROM route_patterns rp
-                          WHERE rp.carrier_id = c.id
-                            AND rp.origin_country = country_from_region(s.origin_name)
-                            AND rp.dest_country = country_from_region(s.dest_name)
-                      )
-                    LIMIT 20
-                """)
-            ).fetchall()
+            covered = {
+                (rp.carrier_id, rp.origin_country, rp.dest_country)
+                for rp in db.query(
+                    RoutePattern.carrier_id,
+                    RoutePattern.origin_country,
+                    RoutePattern.dest_country,
+                ).all()
+            }
+            carrier_slugs = {c.id: c.slug for c in db.query(Carrier).all()}
+
+            active = (
+                db.query(Shipment)
+                .filter(
+                    Shipment.delivered_at.is_(None),
+                    Shipment.origin_name.isnot(None),
+                    Shipment.dest_name.isnot(None),
+                )
+                .all()
+            )
+
+            missing: list[tuple[str, str, str]] = []
+            seen = set()
+            for s in active:
+                oc = country_from_region(s.origin_name or "")
+                dc = country_from_region(s.dest_name or "")
+                if oc == "??" or dc == "??":
+                    continue
+                key = (s.carrier_id, oc, dc)
+                if key in covered or key in seen:
+                    continue
+                seen.add(key)
+                slug = carrier_slugs.get(s.carrier_id)
+                if slug:
+                    missing.append((slug, oc, dc))
+                if len(missing) >= 20:
+                    break
         finally:
             if close_session:
                 db.close()
 
         researched = 0
-        for row in rows:
-            result = self.research_and_store(row.slug, row.oc, row.dc)
+        for slug, oc, dc in missing:
+            result = self.research_and_store(slug, oc, dc)
             if result.get("created"):
                 researched += 1
 
         logger.info(f"Researched {researched} missing lanes")
-        return {"researched": researched}
+        return {"researched": researched, "candidates": len(missing)}

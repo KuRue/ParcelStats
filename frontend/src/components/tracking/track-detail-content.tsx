@@ -483,6 +483,7 @@ export function TrackDetailContent({
               destLng={data.destLng ? parseFloat(data.destLng) : null}
               destName={data.destName}
               status={data.status}
+              futureStops={routePrediction?.route?.futureStops}
             />
           </CyberCard>
 

@@ -14,6 +14,16 @@ interface MapEvent {
   eventTime: string;
 }
 
+interface FutureStop {
+  stopOrder: number;
+  locationName: string;
+  locationLat: number | null;
+  locationLng: number | null;
+  status: string;
+  frequencyPct: number;
+  eta: string;
+}
+
 interface ShipmentRouteMapProps {
   events: MapEvent[];
   originLat?: number | null;
@@ -23,6 +33,7 @@ interface ShipmentRouteMapProps {
   destLng?: number | null;
   destName?: string | null;
   status: string;
+  futureStops?: FutureStop[];
 }
 
 function createIcon(color: string, size: number = 12) {
@@ -63,6 +74,22 @@ function createPulseIcon(color: string) {
     </div>`,
     iconSize: [16, 16],
     iconAnchor: [8, 8],
+  });
+}
+
+function createGhostIcon(color: string) {
+  return L.divIcon({
+    className: "custom-marker",
+    html: `<div style="
+      width:12px;
+      height:12px;
+      background:${color}22;
+      border:2px dashed ${color};
+      border-radius:50%;
+      box-shadow:0 0 8px ${color}50;
+    "></div>`,
+    iconSize: [12, 12],
+    iconAnchor: [6, 6],
   });
 }
 
@@ -126,6 +153,7 @@ export function ShipmentRouteMap({
   destLng,
   destName,
   status,
+  futureStops,
 }: ShipmentRouteMapProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
@@ -256,10 +284,46 @@ export function ShipmentRouteMap({
 
       const lastGeoEvent = geoEvents[0];
       if (destLat != null && destLng != null && status.toLowerCase() !== "delivered") {
+        // Route the predicted path through known future stops when available
+        const geoFutureStops = (futureStops ?? []).filter(
+          (s) => s.locationLat != null && s.locationLng != null
+        );
+
         const predictedLine: L.LatLngExpression[] = [
           [lastGeoEvent.locationLat!, lastGeoEvent.locationLng!],
-          [destLat, destLng],
         ];
+        for (const stop of geoFutureStops) {
+          // Skip stops that coincide with the destination marker
+          if (
+            Math.abs(stop.locationLat! - destLat) < 0.05 &&
+            Math.abs(stop.locationLng! - destLng) < 0.05
+          ) {
+            continue;
+          }
+          predictedLine.push([stop.locationLat!, stop.locationLng!]);
+
+          const etaDate = new Date(stop.eta);
+          const etaText = Number.isFinite(etaDate.getTime())
+            ? etaDate.toLocaleDateString(undefined, {
+                month: "short",
+                day: "numeric",
+              })
+            : "";
+          const ghost = L.marker([stop.locationLat!, stop.locationLng!], {
+            icon: createGhostIcon("#bf00ff"),
+          }).addTo(map);
+          ghost.bindPopup(
+            `<div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#e0e6f0;background:#1a1f2e;padding:10px;border:1px solid #2a3040;border-radius:6px;min-width:180px;">
+              <div style="color:#bf00ff;font-weight:bold;margin-bottom:4px;font-size:10px;letter-spacing:1px;">PREDICTED · ${formatStatusLabel(stop.status)}</div>
+              <div style="margin-bottom:4px;">${stop.locationName}</div>
+              <div style="color:#7a8599;font-size:10px;">ETA ${etaText} · ${Math.round(stop.frequencyPct)}% of shipments</div>
+            </div>`,
+            { className: "cyber-popup" }
+          );
+          markers.push(ghost);
+          points.push([stop.locationLat!, stop.locationLng!]);
+        }
+        predictedLine.push([destLat, destLng]);
 
         L.polyline(predictedLine, {
           color: "#bf00ff",
@@ -301,7 +365,7 @@ export function ShipmentRouteMap({
       const bounds = L.latLngBounds(points);
       map.fitBounds(bounds, { padding: [30, 30], maxZoom: 10 });
     }
-  }, [events, originLat, originLng, originName, destLat, destLng, destName, status]);
+  }, [events, originLat, originLng, originName, destLat, destLng, destName, status, futureStops]);
 
   return (
     <div className="relative">

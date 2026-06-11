@@ -6,11 +6,12 @@ how many of the shipment's current events align with the pattern stops,
 then return the best match's remaining stops with timing estimates.
 """
 import logging
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from database.models import Shipment, ShipmentEvent, Carrier, RoutePattern
 from services.geocode import resolve as geocode_resolve
 from services.knowledge import country_from_region
+from services.timeutil import utcnow, to_naive_utc
 
 logger = logging.getLogger("parcelstats.route_predictor")
 
@@ -55,7 +56,8 @@ def predict_route(db, shipment: Shipment) -> dict | None:
     if not best:
         return None
 
-    future = _extract_future_stops(best["pattern"], best["matched_to"], current_stops, events)
+    start_time = to_naive_utc(shipment.shipped_at or events[0].event_time)
+    future = _extract_future_stops(best["pattern"], best["matched_to"], start_time)
     if not future:
         return None
 
@@ -94,17 +96,12 @@ def _build_current_stops(events):
 
 
 def _canonical(name, lat, lng) -> str | None:
-    if name:
-        resolved = geocode_resolve(name)
-        if resolved:
-            return resolved.city or resolved.country
-    if lat and lng:
-        resolved = geocode_resolve(f"{lat},{lng}")
-        if resolved:
-            return resolved.city or resolved.country
-    if name:
-        return name.split(",")[0].strip().lower() or None
-    return None
+    if not name:
+        return None
+    resolved = geocode_resolve(name)
+    if resolved:
+        return resolved.city or resolved.country
+    return name.split(",")[0].strip().lower() or None
 
 
 def _find_best_pattern(current_stops, patterns):
@@ -138,7 +135,8 @@ def _find_best_pattern(current_stops, patterns):
         if future_stops <= 0:
             continue
 
-        score = (match_count / len(stops_raw)) * (pattern.match_score or 0.5)
+        # match_score is a Numeric column - arrives as Decimal from the DB
+        score = (match_count / len(stops_raw)) * float(pattern.match_score or 0.5)
         if score > best_score:
             best_score = score
             best = {
@@ -150,14 +148,20 @@ def _find_best_pattern(current_stops, patterns):
     return best
 
 
-def _extract_future_stops(pattern, matched_to, current_stops, events):
-    """Return the remaining stops after the matched prefix, with timing."""
+def _extract_future_stops(pattern, matched_to, start_time):
+    """Return the remaining stops after the matched prefix, with timing.
+
+    Pattern stop timings are days-from-journey-start (the same anchor the
+    miner uses), so each ETA is start_time + median_days. A stop the
+    shipment is running late for is clamped to "soon" rather than shown in
+    the past.
+    """
     stops_raw = pattern.stops
     if not stops_raw or matched_to >= len(stops_raw):
         return None
 
-    # Use the last event time as the reference point for timing
-    last_event_time = max(e.event_time for e in events) if events else datetime.utcnow()
+    now = utcnow()
+    min_eta = now + timedelta(hours=2)
 
     future = []
     for i in range(matched_to, len(stops_raw)):
@@ -166,15 +170,23 @@ def _extract_future_stops(pattern, matched_to, current_stops, events):
         p10_days = ps.get("p10_days", 0)
         p90_days = ps.get("p90_days", 0)
 
-        # Compute time remaining from last event to this stop
-        days_remaining = max(0, median_days - (matched_to * 0))  # rough estimate
-        eta = last_event_time + timedelta(days=days_remaining)
+        eta = start_time + timedelta(days=median_days)
+        if eta < min_eta:
+            eta = min_eta
+
+        # LLM-researched stops carry names but no coordinates; resolve them
+        # so the detail map can draw the predicted path.
+        lat, lng = ps.get("location_lat"), ps.get("location_lng")
+        if lat is None and ps.get("location_name"):
+            hit = geocode_resolve(ps["location_name"])
+            if hit:
+                lat, lng = hit.lat, hit.lng
 
         future.append({
             "stop_order": i,
             "location_name": ps.get("location_name", "Unknown"),
-            "location_lat": ps.get("location_lat"),
-            "location_lng": ps.get("location_lng"),
+            "location_lat": lat,
+            "location_lng": lng,
             "status": ps.get("status", "in_transit"),
             "frequency_pct": ps.get("frequency_pct", 100),
             "eta": eta.isoformat(),

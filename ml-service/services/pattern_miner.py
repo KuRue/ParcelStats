@@ -140,18 +140,13 @@ def _build_sequence(db, shipment: Shipment):
 
 def _canonical_location(name: str | None, lat, lng) -> str | None:
     """Resolve a location string to a canonical city or country name."""
-    if name:
-        resolved = geocode_resolve(name)
-        if resolved:
-            return resolved.city or resolved.country
-    if lat and lng:
-        resolved = geocode_resolve(f"{lat},{lng}")
-        if resolved:
-            return resolved.city or resolved.country
-    if name:
-        # Last resort: use the raw location name, stripped to first part
-        return name.split(",")[0].strip().lower() or None
-    return None
+    if not name:
+        return None
+    resolved = geocode_resolve(name)
+    if resolved:
+        return resolved.city or resolved.country
+    # Last resort: use the raw location name, stripped to first part
+    return name.split(",")[0].strip().lower() or None
 
 
 def _cluster_sequences(sequences):

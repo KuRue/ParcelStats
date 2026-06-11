@@ -1,4 +1,4 @@
-from fastapi import APIRouter, BackgroundTasks
+from fastapi import APIRouter, BackgroundTasks, HTTPException, status
 from pydantic import BaseModel
 from services.trainer import ModelTrainer
 from services.pattern_miner import mine_patterns
@@ -27,21 +27,27 @@ async def trigger_mining(background_tasks: BackgroundTasks):
 
 
 @router.post("/research-lane")
-async def trigger_research(req: LaneResearchRequest, background_tasks: BackgroundTasks):
+async def trigger_research(req: LaneResearchRequest):
     agent = RouteResearchAgent()
     if not agent.available:
-        return {"status": "error", "message": "OpenAI not configured. Set OPENAI_BASE_URL and OPENAI_API_KEY."}
-    background_tasks.add_task(_research, req.carrier_slug, req.origin_country, req.dest_country)
-    return {"status": "research_started", "carrier": req.carrier_slug,
-            "origin": req.origin_country, "dest": req.dest_country}
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="OpenAI not configured. Set OPENAI_BASE_URL and OPENAI_API_KEY."
+        )
+    result = agent.research_and_store(req.carrier_slug, req.origin_country, req.dest_country)
+    return result
 
 
 @router.post("/research-missing")
 async def trigger_research_missing(background_tasks: BackgroundTasks):
+    # Many lanes x LLM latency: run in the background, poll /research-status
     agent = RouteResearchAgent()
     if not agent.available:
-        return {"status": "error", "message": "OpenAI not configured."}
-    background_tasks.add_task(_research_missing)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="OpenAI not configured. Set OPENAI_BASE_URL and OPENAI_API_KEY."
+        )
+    background_tasks.add_task(agent.fill_missing_lanes)
     return {"status": "research_missing_started"}
 
 
@@ -89,6 +95,9 @@ async def research_status():
         },
         "missing_lanes": missing,
     }
+
+
+@router.get("/status")
 async def training_status():
     from database.connection import SessionLocal
     from database.models import ModelVersion
@@ -122,16 +131,4 @@ def _train():
 
 def _mine():
     result = mine_patterns()
-    return result
-
-
-def _research(carrier_slug: str, origin_country: str, dest_country: str):
-    agent = RouteResearchAgent()
-    result = agent.research_and_store(carrier_slug, origin_country, dest_country)
-    return result
-
-
-def _research_missing():
-    agent = RouteResearchAgent()
-    result = agent.fill_missing_lanes()
     return result
