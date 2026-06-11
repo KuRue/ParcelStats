@@ -1,5 +1,4 @@
 import pytest
-import xml.etree.ElementTree as ET
 
 from services.scraper.base import BaseCarrierScraper, ScrapedShipment
 
@@ -171,92 +170,114 @@ def test_speedpak_parse_waybill():
     assert shipment.shipped_at == shipment.events[-1].event_time
 
 
-def test_usps_parse_web_tools_xml():
-    from services.scraper.usps import USPSPScraper
+def _fake_17track_client(payload):
+    class FakeResponse:
+        status_code = 200
+        text = "ok"
 
-    scraper = USPSPScraper()
-    track_info = ET.fromstring(
-        """
-        <TrackInfo ID="9400136106196445294475">
-          <Class>USPS Ground Advantage</Class>
-          <ExpectedDeliveryDate>June 12, 2026</ExpectedDeliveryDate>
-          <TrackSummary>
-            <Event>In Transit to Next Facility</Event>
-            <EventDate>June 10, 2026</EventDate>
-            <EventTime>8:15 AM</EventTime>
-            <EventCity>JACKSONVILLE</EventCity>
-            <EventState>FL</EventState>
-            <EventZIPCode>32099</EventZIPCode>
-          </TrackSummary>
-          <TrackDetail>
-            <Event>USPS in possession of item</Event>
-            <EventDate>June 09, 2026</EventDate>
-            <EventTime>3:00 PM</EventTime>
-            <EventCity>TAMPA</EventCity>
-            <EventState>FL</EventState>
-          </TrackDetail>
-        </TrackInfo>
-        """
-    )
+        def json(self):
+            return payload
 
-    shipment = scraper._shipment_from_xml("9400136106196445294475", track_info)
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
 
-    assert shipment.status == "in_transit"
-    assert shipment.service_type == "USPS Ground Advantage"
-    assert shipment.estimated_delivery is not None
-    assert len(shipment.events) == 2
-    assert shipment.events[0].location_name == "JACKSONVILLE, FL, 32099"
-    assert shipment.events[1].status == "pending"
+        async def __aenter__(self):
+            return self
 
+        async def __aexit__(self, *args):
+            return False
 
-def test_usps_parse_public_json():
-    from services.scraper.usps import USPSPScraper
+        async def post(self, *args, **kwargs):
+            return FakeResponse()
 
-    scraper = USPSPScraper()
-    shipment = scraper._shipment_from_public_json(
-        "9400136106196445294475",
-        {
-            "TrackResults": {
-                "TrackInfo": {
-                    "MailClass": "Priority Mail",
-                    "ExpectedDeliveryDate": "June 12, 2026",
-                    "TrackSummary": {
-                        "EventStatus": "Arrived at USPS Facility",
-                        "EventDate": "June 10, 2026",
-                        "EventTime": "8:15 AM",
-                        "EventCity": "JACKSONVILLE",
-                        "EventState": "FL",
-                    },
-                    "TrackDetail": {
-                        "EventStatus": "Departed USPS Facility",
-                        "EventDate": "June 09, 2026",
-                        "EventTime": "3:00 PM",
-                        "EventCity": "TAMPA",
-                        "EventState": "FL",
-                    },
-                }
-            }
-        },
-    )
-
-    assert shipment.status == "arrived_at_facility"
-    assert shipment.service_type == "Priority Mail"
-    assert shipment.estimated_delivery is not None
-    assert len(shipment.events) == 2
-    assert shipment.events[0].location_name == "JACKSONVILLE, FL"
+    return FakeClient
 
 
 @pytest.mark.asyncio
-async def test_usps_requires_credentials(monkeypatch):
-    from services.config import settings
+async def test_usps_parses_17track_response(monkeypatch):
+    import services.scraper.usps as usps_mod
     from services.scraper.usps import USPSPScraper
 
-    monkeypatch.setattr(settings, "usps_web_tools_user_id", None)
+    payload = {
+        "ret": 0,
+        "dat": {
+            "accepted": [
+                {
+                    "z": {
+                        "o": "TAMPA, FL",
+                        "d": "JACKSONVILLE, FL",
+                        "y": "1781395200000",
+                        "e": [
+                            {
+                                "a": "1781222400000",
+                                "b": "JACKSONVILLE",
+                                "c": "FL",
+                                "z": {"c": "InTransit", "en": "Arrived at USPS Facility"},
+                            },
+                            {
+                                "a": "1781136000000",
+                                "b": "TAMPA",
+                                "c": "FL",
+                                "z": {"c": "InfoReceived", "en": "USPS in possession of item"},
+                            },
+                        ],
+                    }
+                }
+            ],
+            "rejected": [],
+        },
+    }
+    monkeypatch.setattr(usps_mod.httpx, "AsyncClient", _fake_17track_client(payload))
+
     shipment = await USPSPScraper().track("9400136106196445294475")
 
-    assert shipment.status == "carrier_setup_required"
-    assert shipment.events[0].status == "carrier_setup_required"
-    assert "USPS_WEB_TOOLS_USER_ID" in shipment.events[0].description
+    assert shipment.status not in ("error", "pending")
+    assert shipment.origin_name == "TAMPA, FL"
+    assert shipment.dest_name == "JACKSONVILLE, FL"
+    assert shipment.estimated_delivery is not None
+    assert len(shipment.events) == 2
+    assert shipment.events[0].location_name == "JACKSONVILLE, FL"
+    assert shipment.events[0].description == "Arrived at USPS Facility"
+    assert shipment.events[0].event_time is not None
+
+
+@pytest.mark.asyncio
+async def test_usps_rejected_means_pending(monkeypatch):
+    import services.scraper.usps as usps_mod
+    from services.scraper.usps import USPSPScraper
+
+    payload = {"ret": 0, "dat": {"accepted": [], "rejected": [{"e": "x"}]}}
+    monkeypatch.setattr(usps_mod.httpx, "AsyncClient", _fake_17track_client(payload))
+
+    shipment = await USPSPScraper().track("9400136106196445294475")
+
+    assert shipment.status == "pending"
+    assert "No tracking information" in shipment.events[0].description
+
+
+@pytest.mark.asyncio
+async def test_usps_http_error_returns_error_status(monkeypatch):
+    import services.scraper.usps as usps_mod
+    from services.scraper.usps import USPSPScraper
+
+    payload = {"ret": 1}
+    monkeypatch.setattr(usps_mod.httpx, "AsyncClient", _fake_17track_client(payload))
+
+    shipment = await USPSPScraper().track("9400136106196445294475")
+
+    assert shipment.status == "error"
+
+
+def test_usps_hash_tracking_is_deterministic():
+    from services.scraper.usps import USPSPScraper
+
+    a = USPSPScraper._hash_tracking("9400136106196445294475")
+    b = USPSPScraper._hash_tracking("9400136106196445294475")
+    c = USPSPScraper._hash_tracking("9400136106196445294476")
+    assert a == b
+    assert a != c
+    assert a.isdigit()
 
 
 @pytest.mark.asyncio
