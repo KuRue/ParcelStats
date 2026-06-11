@@ -333,6 +333,9 @@ export function DashboardContent({ userId }: { userId: string }) {
     lastLat: t.lastLat,
     lastLng: t.lastLng,
     path: t.path ?? [],
+    originName: t.originName,
+    destName: t.destName,
+    lastLocation: t.lastLocation,
   }));
 
   return (

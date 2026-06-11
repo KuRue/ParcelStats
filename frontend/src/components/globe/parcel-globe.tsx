@@ -16,6 +16,9 @@ export interface GlobeShipment {
   lastLat: string | null;
   lastLng: string | null;
   path: [number, number][];
+  originName: string | null;
+  destName: string | null;
+  lastLocation: string | null;
 }
 
 interface ParcelGlobeProps {
@@ -91,6 +94,22 @@ interface Ring {
   color: string;
 }
 
+interface PlaceLabel {
+  shipmentId: string;
+  lat: number;
+  lng: number;
+  text: string;
+  kind: "current" | "origin" | "dest";
+  color: string;
+}
+
+/** "Chicago IL, US" -> "Chicago IL"; "SHENZHEN, China" -> "SHENZHEN" */
+function placeName(location: string | null): string | null {
+  if (!location) return null;
+  const name = location.split(",")[0].trim();
+  return name.length > 1 ? name : null;
+}
+
 /** Resolve a shipment's known journey into globe coordinates. */
 function journeyOf(s: GlobeShipment) {
   const origin =
@@ -161,10 +180,20 @@ export default function ParcelGlobe({ shipments, selectedId, onSelect }: ParcelG
     []
   );
 
-  const { arcs, points, rings } = useMemo(() => {
+  const { arcs, points, rings, labels } = useMemo(() => {
     const arcs: Arc[] = [];
     const points: Point[] = [];
     const rings: Ring[] = [];
+    const labels: PlaceLabel[] = [];
+    const labelSpots = new Set<string>();
+
+    const addLabel = (label: PlaceLabel) => {
+      // One label per ~half-degree cell to keep shared hubs readable
+      const key = `${Math.round(label.lat * 2)}:${Math.round(label.lng * 2)}`;
+      if (labelSpots.has(key)) return;
+      labelSpots.add(key);
+      labels.push(label);
+    };
 
     for (const s of shipments) {
       const { origin, dest, trail, current } = journeyOf(s);
@@ -214,6 +243,17 @@ export default function ParcelGlobe({ shipments, selectedId, onSelect }: ParcelG
         if (!delivered) {
           rings.push({ shipmentId: s.id, lat: current[0], lng: current[1], color });
         }
+        const currentName = placeName(s.lastLocation) ?? (delivered ? placeName(s.destName) : null);
+        if (currentName) {
+          addLabel({
+            shipmentId: s.id,
+            lat: current[0],
+            lng: current[1],
+            text: currentName,
+            kind: "current",
+            color,
+          });
+        }
       }
       if (dest && !delivered) {
         points.push({
@@ -223,10 +263,45 @@ export default function ParcelGlobe({ shipments, selectedId, onSelect }: ParcelG
           kind: "dest",
           color: COLORS.pending,
         });
+        const destLabel = placeName(s.destName);
+        if (destLabel) {
+          addLabel({
+            shipmentId: s.id,
+            lat: dest[0],
+            lng: dest[1],
+            text: destLabel,
+            kind: "dest",
+            color: COLORS.pending,
+          });
+        }
+      }
+      if (origin) {
+        const originLabel = placeName(s.originName);
+        if (originLabel) {
+          addLabel({
+            shipmentId: s.id,
+            lat: origin[0],
+            lng: origin[1],
+            text: originLabel,
+            kind: "origin",
+            color: "#7a8599",
+          });
+        }
       }
     }
-    return { arcs, points, rings };
+    return { arcs, points, rings, labels };
   }, [shipments]);
+
+  const visibleLabels = useMemo(() => {
+    if (selectedId) {
+      return labels.filter((l) => l.shipmentId === selectedId);
+    }
+    // Unselected view: show where parcels are now, plus destinations when
+    // there are few enough parcels for it to stay readable.
+    return labels.filter(
+      (l) => l.kind === "current" || (l.kind === "dest" && shipments.length <= 8)
+    );
+  }, [labels, selectedId, shipments.length]);
 
   const arcColor = useCallback(
     (a: object) => {
@@ -282,6 +357,12 @@ export default function ParcelGlobe({ shipments, selectedId, onSelect }: ParcelG
           hexPolygonMargin={0.62}
           hexPolygonUseDots
           hexPolygonColor={() => "rgba(0,240,255,0.28)"}
+          polygonsData={land}
+          polygonCapColor={() => "rgba(0,0,0,0)"}
+          polygonSideColor={() => "rgba(0,0,0,0)"}
+          polygonStrokeColor={() => "rgba(0,240,255,0.16)"}
+          polygonAltitude={0.002}
+          polygonsTransitionDuration={0}
           arcsData={arcs}
           arcColor={arcColor}
           arcStroke={(a: object) =>
@@ -322,6 +403,25 @@ export default function ParcelGlobe({ shipments, selectedId, onSelect }: ParcelG
           ringMaxRadius={3.2}
           ringPropagationSpeed={1.6}
           ringRepeatPeriod={1100}
+          labelsData={visibleLabels}
+          labelLat={(l: object) => (l as PlaceLabel).lat}
+          labelLng={(l: object) => (l as PlaceLabel).lng}
+          labelText={(l: object) => (l as PlaceLabel).text}
+          labelSize={(l: object) => {
+            const label = l as PlaceLabel;
+            if (selectedId && label.shipmentId === selectedId) return 1.05;
+            return label.kind === "current" ? 0.85 : 0.7;
+          }}
+          labelColor={(l: object) => {
+            const label = l as PlaceLabel;
+            const alpha = label.kind === "current" ? 0.9 : 0.65;
+            return withAlpha(label.color, alpha);
+          }}
+          labelDotRadius={0.18}
+          labelAltitude={0.012}
+          labelResolution={2}
+          labelsTransitionDuration={400}
+          onLabelClick={(l: object) => onSelect((l as PlaceLabel).shipmentId)}
           onGlobeClick={() => onSelect(null)}
           rendererConfig={{ antialias: true, alpha: true }}
         />

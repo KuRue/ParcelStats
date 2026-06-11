@@ -71,8 +71,10 @@ class ETAPredictor:
         seasonal = get_seasonal_multiplier(ref_date.month)
         is_domestic = 1 if origin_country == dest_country else 0
 
+        kb_args = (origin_country, dest_country, carrier_slug, service_type, ref_date, seasonal)
+
         if not self.is_ready:
-            return None
+            return self._knowledge_prediction(*kb_args)
 
         try:
             features = self.metadata["features"]
@@ -90,11 +92,11 @@ class ETAPredictor:
                 encoded["dest_country"] = self._encode("dest_country", dest_country)
 
             if encoded["carrier_slug"] == -1:
-                return None
+                return self._knowledge_prediction(*kb_args)
             origin_ok = encoded.get("origin_region", encoded.get("origin_country", -1))
             dest_ok = encoded.get("dest_region", encoded.get("dest_country", -1))
             if origin_ok == -1 and dest_ok == -1:
-                return None
+                return self._knowledge_prediction(*kb_args)
             unknown_count = sum(1 for v in encoded.values() if v == -1)
 
             row = {}
@@ -150,7 +152,32 @@ class ETAPredictor:
                 "prediction_source": "ml",
             }
         except Exception:
+            return self._knowledge_prediction(*kb_args)
+
+    def _knowledge_prediction(self, origin_country: str, dest_country: str,
+                              carrier_slug: str, service_type: str,
+                              ref_date: datetime, seasonal: float) -> dict | None:
+        from services.knowledge import predict_eta_knowledge
+        result = predict_eta_knowledge(origin_country, dest_country, carrier_slug, service_type)
+        if not result:
             return None
+        median_days = result["median_days"] * seasonal
+        p10_days = result["p10_days"] * seasonal
+        p90_days = result["p90_days"] * seasonal
+        predicted_delivery = ref_date + timedelta(days=median_days)
+        confidence_low = ref_date + timedelta(days=p10_days)
+        confidence_high = ref_date + timedelta(days=p90_days)
+        return {
+            "predicted_delivery": predicted_delivery.isoformat(),
+            "confidence_low": confidence_low.isoformat(),
+            "confidence_high": confidence_high.isoformat(),
+            "confidence_pct": result["confidence_pct"],
+            "model_version": "knowledge-v1",
+            "median_days": round(median_days, 2),
+            "p10_days": round(p10_days, 2),
+            "p90_days": round(p90_days, 2),
+            "prediction_source": "knowledge",
+        }
 
     def _encode(self, feature: str, value: str) -> int:
         cats = self.metadata.get("categories", {}).get(feature, {})

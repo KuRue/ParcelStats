@@ -2,24 +2,25 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { CyberCard, StatCard } from "@/components/ui/cyber-card";
+import { CyberCard } from "@/components/ui/cyber-card";
 import { TrackingTimeline, ConfidenceBar, StatusBadge } from "@/components/tracking/timeline";
 import { useEventStream } from "@/hooks/use-event-stream";
+import { formatDistanceToNowStrict, differenceInCalendarDays } from "date-fns";
 import {
   Package,
-  Clock,
-  MapPin,
   Brain,
   ArrowLeft,
   ExternalLink,
   Loader2,
-  Activity,
-  TrendingUp,
   Trash2,
+  Copy,
+  Check,
+  MapPin,
+  Truck,
 } from "lucide-react";
 import Link from "next/link";
 import ShipmentRouteMap from "@/components/maps/shipment-map-dynamic";
-import { formatRegionalDateHour } from "@/lib/utils";
+import { formatRegionalDateHour, formatConfidence } from "@/lib/utils";
 
 interface ShipmentDetail {
   canDelete?: boolean;
@@ -54,6 +55,45 @@ interface ShipmentDetail {
   } | null;
 }
 
+function isIssueStatus(status: string): boolean {
+  const s = status.toLowerCase();
+  return (
+    s.includes("exception") ||
+    s.includes("fail") ||
+    s.includes("error") ||
+    s.includes("required") ||
+    s.includes("not_found") ||
+    s.includes("blocked")
+  );
+}
+
+function isDeliveredStatus(status: string): boolean {
+  return status.toLowerCase().includes("deliver") && !isIssueStatus(status);
+}
+
+function placeName(location: string | null): string {
+  if (!location) return "Unknown";
+  return location.split(",")[0].trim() || "Unknown";
+}
+
+function relative(value: string | Date): string {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return formatDistanceToNowStrict(date, { addSuffix: true });
+}
+
+function eventTimeLabel(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const abs = date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  return `${abs} · ${relative(date)}`;
+}
+
 export function TrackDetailContent({
   shipmentId,
   authenticated,
@@ -66,6 +106,7 @@ export function TrackDetailContent({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const handleDelete = useCallback(async () => {
     if (!window.confirm("Stop tracking this shipment? This cannot be undone.")) {
@@ -81,6 +122,15 @@ export function TrackDetailContent({
     } catch {}
     setDeleting(false);
   }, [shipmentId, router]);
+
+  const handleCopy = useCallback(async () => {
+    if (!data) return;
+    try {
+      await navigator.clipboard.writeText(data.trackingNumber);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {}
+  }, [data]);
 
   const loadData = useCallback(async () => {
     try {
@@ -143,9 +193,36 @@ export function TrackDetailContent({
     ? data.carrier.trackingUrlTemplate.replace("{tracking_number}", data.trackingNumber)
     : null;
 
+  const delivered = isDeliveredStatus(data.status);
+  const issue = isIssueStatus(data.status);
+  const eta = data.prediction?.predictedDelivery ?? data.estimatedDelivery;
+  const etaDate = eta ? new Date(eta) : null;
+  const shippedDate = data.shippedAt ? new Date(data.shippedAt) : null;
+  const deliveredDate = data.deliveredAt ? new Date(data.deliveredAt) : null;
+  const lastEvent = data.events[0] ?? null;
+
+  const transitDays = shippedDate
+    ? differenceInCalendarDays(deliveredDate ?? new Date(), shippedDate)
+    : null;
+
+  // Time-based journey progress between ship date and (actual or predicted) arrival
+  let progress: number | null = null;
+  if (delivered) {
+    progress = 1;
+  } else if (shippedDate && etaDate && etaDate > shippedDate) {
+    const ratio =
+      (Date.now() - shippedDate.getTime()) / (etaDate.getTime() - shippedDate.getTime());
+    progress = Math.min(0.96, Math.max(0.04, ratio));
+  }
+
+  const confidence = data.prediction
+    ? formatConfidence(data.prediction.confidencePct)
+    : null;
+
   return (
     <div className="max-w-7xl mx-auto px-4 py-6 md:py-8 pb-24 md:pb-8">
-      <div className="flex flex-col gap-3 mb-6 sm:flex-row sm:items-center sm:gap-4 sm:mb-8">
+      {/* Header */}
+      <div className="flex flex-col gap-3 mb-6 sm:flex-row sm:items-center sm:gap-4">
         <div className="flex w-full min-w-0 items-start gap-3 sm:flex-1">
           <Link
             href="/dashboard"
@@ -155,17 +232,27 @@ export function TrackDetailContent({
             <ArrowLeft className="w-5 h-5" />
           </Link>
           <div className="min-w-0 flex-1">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+            <div className="flex flex-wrap items-center gap-2">
               <h1 className="font-display text-base leading-snug text-cyber-text break-all sm:text-xl">
                 {data.trackingNumber}
               </h1>
-              <div className="flex flex-wrap gap-2">
-                <StatusBadge status={data.status} />
-              </div>
+              <button
+                onClick={handleCopy}
+                className="shrink-0 text-cyber-muted hover:text-cyber-cyan transition-colors"
+                aria-label="Copy tracking number"
+                title="Copy tracking number"
+              >
+                {copied ? (
+                  <Check className="w-4 h-4 text-cyber-green" />
+                ) : (
+                  <Copy className="w-4 h-4" />
+                )}
+              </button>
+              <StatusBadge status={data.status} />
             </div>
-            <p className="text-sm text-cyber-muted font-mono break-words">
+            <p className="text-sm text-cyber-muted font-mono break-words mt-0.5">
               {data.carrier.name}
-              {data.serviceType ? ` - ${data.serviceType}` : ""}
+              {data.serviceType ? ` · ${data.serviceType}` : ""}
             </p>
           </div>
         </div>
@@ -194,28 +281,106 @@ export function TrackDetailContent({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-6 sm:mb-8">
-        {data.originName && (
-          <StatCard label="Origin" value={data.originName} color="purple" />
-        )}
-        {data.destName && (
-          <StatCard label="Destination" value={data.destName} color="cyan" />
-        )}
-        {data.shippedAt && (
-          <StatCard
-            label="Shipped"
-            value={new Date(data.shippedAt).toLocaleDateString()}
-            color="yellow"
-          />
-        )}
-        {data.deliveredAt && (
-          <StatCard
-            label="Delivered"
-            value={new Date(data.deliveredAt).toLocaleDateString()}
-            color="green"
-          />
-        )}
-      </div>
+      {/* ETA hero + journey progress */}
+      <CyberCard
+        glow={delivered ? "green" : issue ? "none" : "cyan"}
+        className="mb-6"
+      >
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            {delivered ? (
+              <>
+                <p className="stat-label mb-1">Delivered</p>
+                <p className="font-display text-2xl font-bold text-cyber-green text-shadow-cyber">
+                  {deliveredDate ? formatRegionalDateHour(deliveredDate) : "Confirmed"}
+                </p>
+                {transitDays != null && (
+                  <p className="mt-1 font-mono text-xs text-cyber-muted">
+                    {transitDays} day{transitDays === 1 ? "" : "s"} in transit
+                  </p>
+                )}
+              </>
+            ) : issue ? (
+              <>
+                <p className="stat-label mb-1">Attention needed</p>
+                <p className="font-display text-xl font-bold text-cyber-red">
+                  {lastEvent?.description || "Tracking issue"}
+                </p>
+              </>
+            ) : etaDate ? (
+              <>
+                <p className="stat-label mb-1">Estimated arrival</p>
+                <p className="font-display text-2xl font-bold text-cyber-cyan text-shadow-cyber">
+                  {relative(etaDate)}
+                </p>
+                <p className="mt-1 font-mono text-xs text-cyber-muted">
+                  {formatRegionalDateHour(etaDate)}
+                  {data.prediction?.confidenceLow && data.prediction?.confidenceHigh
+                    ? ` · window ${formatRegionalDateHour(
+                        data.prediction.confidenceLow
+                      )} – ${formatRegionalDateHour(data.prediction.confidenceHigh)}`
+                    : ""}
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="stat-label mb-1">Estimated arrival</p>
+                <p className="font-display text-xl font-bold text-cyber-muted">
+                  Awaiting first scan
+                </p>
+              </>
+            )}
+          </div>
+          {confidence && !delivered && !issue && (
+            <div className="w-full md:w-56">
+              <ConfidenceBar
+                value={Math.round(data.prediction!.confidencePct)}
+                label={`Confidence · ${confidence.label}`}
+              />
+            </div>
+          )}
+        </div>
+
+        {/* Journey rail */}
+        <div className="mt-5">
+          <div className="flex items-center justify-between gap-3 font-mono text-[11px] text-cyber-muted">
+            <span className="flex min-w-0 items-center gap-1">
+              <MapPin className="h-3 w-3 shrink-0 text-cyber-purple" />
+              <span className="truncate">{placeName(data.originName)}</span>
+            </span>
+            {lastEvent?.locationName && !delivered && (
+              <span className="hidden min-w-0 items-center gap-1 sm:flex">
+                <Truck className="h-3 w-3 shrink-0 text-cyber-cyan" />
+                <span className="truncate text-cyber-text">
+                  {placeName(lastEvent.locationName)}
+                </span>
+              </span>
+            )}
+            <span className="flex min-w-0 items-center gap-1">
+              <span className="truncate">{placeName(data.destName)}</span>
+              <MapPin className="h-3 w-3 shrink-0 text-cyber-cyan" />
+            </span>
+          </div>
+          <div className="relative mt-2 h-1.5 rounded-full bg-cyber-border/40">
+            <div
+              className={`h-full rounded-full transition-all duration-700 ${
+                delivered
+                  ? "bg-cyber-green"
+                  : issue
+                  ? "bg-cyber-red/70"
+                  : "bg-gradient-to-r from-cyber-purple to-cyber-cyan"
+              }`}
+              style={{ width: `${(progress ?? 0.04) * 100}%` }}
+            />
+            {!delivered && progress != null && (
+              <span
+                className="absolute top-1/2 h-3 w-3 -translate-y-1/2 rounded-full bg-cyber-cyan shadow-cyber-glow animate-pulse"
+                style={{ left: `calc(${progress * 100}% - 6px)` }}
+              />
+            )}
+          </div>
+        </div>
+      </CyberCard>
 
       <div className="grid lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
@@ -236,26 +401,33 @@ export function TrackDetailContent({
             />
           </CyberCard>
 
-          <CyberCard terminal title="Tracking Events">
-            <TrackingTimeline
-              events={data.events.map((e, i) => ({
-                status: e.status,
-                location: e.locationName || undefined,
-                description: e.description || undefined,
-                time: new Date(e.eventTime).toLocaleString(),
-                isLatest: i === 0,
-              }))}
-            />
+          <CyberCard terminal title={`Tracking Events (${data.events.length})`}>
+            {data.events.length === 0 ? (
+              <p className="py-6 text-center font-mono text-xs text-cyber-muted">
+                No scans yet — events appear here once the carrier registers the
+                package.
+              </p>
+            ) : (
+              <TrackingTimeline
+                events={data.events.map((e, i) => ({
+                  status: e.status,
+                  location: e.locationName || undefined,
+                  description: e.description || undefined,
+                  time: eventTimeLabel(e.eventTime),
+                  isLatest: i === 0,
+                }))}
+              />
+            )}
           </CyberCard>
         </div>
 
-        <div className="space-y-4">
-          {data.prediction && (
-            <CyberCard glow="cyan" terminal title="Delivery Prediction">
+        <div className="space-y-6">
+          {data.prediction && !delivered && (
+            <CyberCard glow="cyan" terminal title="AI Prediction">
               <div className="flex items-center gap-2 mb-4">
                 <Brain className="w-4 h-4 text-cyber-cyan" />
                 <h3 className="text-sm font-display tracking-wide text-cyber-cyan">
-                  AI Prediction
+                  Delivery Forecast
                 </h3>
               </div>
 
@@ -267,29 +439,70 @@ export function TrackDetailContent({
                   </p>
                 </div>
 
-                {data.prediction.confidenceLow &&
-                  data.prediction.confidenceHigh && (
-                    <div>
-                      <p className="stat-label mb-1">Confidence Window</p>
-                      <p className="text-sm font-mono text-cyber-text">
-                        {formatRegionalDateHour(data.prediction.confidenceLow)}{" "}
-                        -{" "}
-                        {formatRegionalDateHour(data.prediction.confidenceHigh)}
-                      </p>
-                    </div>
-                  )}
+                {data.prediction.confidenceLow && data.prediction.confidenceHigh && (
+                  <div>
+                    <p className="stat-label mb-1">Confidence Window</p>
+                    <p className="text-sm font-mono text-cyber-text">
+                      {formatRegionalDateHour(data.prediction.confidenceLow)} –{" "}
+                      {formatRegionalDateHour(data.prediction.confidenceHigh)}
+                    </p>
+                  </div>
+                )}
 
                 <ConfidenceBar
-                  value={data.prediction.confidencePct}
+                  value={Math.round(data.prediction.confidencePct)}
                   label="Confidence"
                 />
 
                 <p className="text-[10px] text-cyber-muted/60 font-mono">
-                  Model v{data.prediction.modelVersion}
+                  Model {data.prediction.modelVersion}
                 </p>
               </div>
             </CyberCard>
           )}
+
+          <CyberCard terminal title="Shipment Data">
+            <dl className="space-y-2.5">
+              {[
+                { label: "Carrier", value: data.carrier.name },
+                { label: "Service", value: data.serviceType },
+                { label: "Origin", value: data.originName },
+                { label: "Destination", value: data.destName },
+                {
+                  label: "Shipped",
+                  value: shippedDate
+                    ? `${shippedDate.toLocaleDateString()} · ${relative(shippedDate)}`
+                    : null,
+                },
+                {
+                  label: delivered ? "Total transit" : "In transit",
+                  value:
+                    transitDays != null
+                      ? `${transitDays} day${transitDays === 1 ? "" : "s"}`
+                      : null,
+                },
+                { label: "Scans", value: String(data.events.length) },
+                {
+                  label: "Last update",
+                  value: lastEvent ? relative(lastEvent.eventTime) : null,
+                },
+              ]
+                .filter((row) => row.value)
+                .map((row) => (
+                  <div
+                    key={row.label}
+                    className="flex items-start justify-between gap-3 border-b border-cyber-border/30 pb-2 last:border-0 last:pb-0"
+                  >
+                    <dt className="shrink-0 font-mono text-[11px] uppercase tracking-wider text-cyber-muted">
+                      {row.label}
+                    </dt>
+                    <dd className="min-w-0 break-words text-right font-mono text-xs text-cyber-text">
+                      {row.value}
+                    </dd>
+                  </div>
+                ))}
+            </dl>
+          </CyberCard>
         </div>
       </div>
     </div>
