@@ -33,12 +33,15 @@ def make_predictor():
     return p
 
 
-def test_returns_none_without_loaded_model():
+def test_knowledge_fallback_without_loaded_model():
     p = object.__new__(ETAPredictor)
     p.model_median = None
     p.metadata = None
 
-    assert p.predict("usps", "US", "US") is None
+    result = p.predict("usps", "US", "US")
+    assert result is not None
+    assert result["model_version"] == "knowledge-v1"
+    assert result["prediction_source"] == "knowledge"
 
 
 def test_predicts_for_known_categories():
@@ -48,12 +51,19 @@ def test_predicts_for_known_categories():
     assert result["model_version"] == "test"
 
 
-def test_returns_none_for_unknown_carrier():
-    assert make_predictor().predict("zz-post", "US", "US") is None
+def test_knowledge_fallback_for_unknown_carrier():
+    result = make_predictor().predict("zz-post", "US", "US")
+    assert result is not None
+    assert result["model_version"] == "knowledge-v1"
 
 
-def test_returns_none_when_both_regions_unknown():
-    assert make_predictor().predict("usps", "Nowhere", "Elsewhere") is None
+def test_knowledge_fallback_when_both_regions_unknown():
+    result = make_predictor().predict("usps", "Nowhere", "Elsewhere")
+    assert result is not None
+    assert result["model_version"] == "knowledge-v1"
+    # Unknown lanes should carry lower confidence than known ones
+    known = make_predictor().predict("usps", "US", "US")
+    assert result["confidence_pct"] < known["confidence_pct"]
 
 
 def test_reduced_confidence_for_partially_unknown_input():
