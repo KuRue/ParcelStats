@@ -97,6 +97,21 @@ class RouteResearchAgent:
                 result["error"] = "No stops in LLM response"
                 return result
 
+            # Canonicalize and geocode stop names so the matcher and the
+            # map can use them directly (mined patterns already carry these)
+            from services.geocode import resolve as geocode_resolve
+            for ps in stops:
+                name = ps.get("location_name")
+                if not name:
+                    continue
+                hit = geocode_resolve(name)
+                if hit:
+                    ps.setdefault("canonical", (hit.city or hit.country).strip().lower())
+                    ps.setdefault("location_lat", hit.lat)
+                    ps.setdefault("location_lng", hit.lng)
+                else:
+                    ps.setdefault("canonical", name.split(",")[0].strip().lower())
+
             label = data.get("label", f"{origin_country}→{dest_country} via LLM")
 
             existing = (
@@ -161,10 +176,16 @@ class RouteResearchAgent:
 
         enriched = 0
         for p in patterns:
-            carrier = db.query(Carrier).filter(Carrier.id == p.carrier_id).first()
-            if not carrier:
+            lookup_db = SessionLocal()
+            try:
+                carrier = lookup_db.query(Carrier).filter(Carrier.id == p.carrier_id).first()
+                carrier_slug = carrier.slug if carrier else None
+            finally:
+                lookup_db.close()
+
+            if not carrier_slug:
                 continue
-            data = self.research_lane(carrier.slug, p.origin_country, p.dest_country)
+            data = self.research_lane(carrier_slug, p.origin_country, p.dest_country)
             if data and data.get("label"):
                 db = SessionLocal()
                 try:

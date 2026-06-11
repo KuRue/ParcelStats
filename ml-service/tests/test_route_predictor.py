@@ -41,6 +41,11 @@ def current(canonicals):
     ]
 
 
+def parse_eta(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value)
+    return parsed.replace(tzinfo=None)
+
+
 def test_matches_prefix_and_returns_future():
     best = _find_best_pattern(current(["shenzhen", "hong kong"]), [PATTERN_CN_US])
     assert best is not None
@@ -53,6 +58,13 @@ def test_matches_prefix_and_returns_future():
 
 def test_no_match_for_unrelated_route():
     assert _find_best_pattern(current(["berlin"]), [PATTERN_CN_US]) is None
+
+
+def test_matches_canonical_values_case_insensitively():
+    upper_case = FakePattern([stop("Shenzhen", 0, 0.2), stop("US", 1, 4.0)])
+    best = _find_best_pattern(current(["shenzhen"]), [upper_case])
+    assert best is not None
+    assert best["matched_to"] == 1
 
 
 def test_fully_traversed_pattern_is_skipped():
@@ -74,12 +86,13 @@ def test_eta_anchored_to_journey_start_and_clamped():
     best = _find_best_pattern(current(["shenzhen", "hong kong"]), [PATTERN_CN_US])
     future = _extract_future_stops(best["pattern"], best["matched_to"], datetime(2020, 1, 1))
     for f in future:
-        eta = datetime.fromisoformat(f["eta"])
+        eta = parse_eta(f["eta"])
         assert eta > datetime(2026, 1, 1)
 
     # Fresh journey: ETA = start + median days from start
     future2 = _extract_future_stops(best["pattern"], best["matched_to"], datetime(2099, 1, 1))
-    eta_chicago = datetime.fromisoformat(future2[0]["eta"])
+    assert future2[0]["eta"].endswith("+00:00")
+    eta_chicago = parse_eta(future2[0]["eta"])
     assert (eta_chicago - datetime(2099, 1, 1)).days == 8
 
 

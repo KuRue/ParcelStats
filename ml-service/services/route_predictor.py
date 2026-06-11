@@ -6,7 +6,7 @@ how many of the shipment's current events align with the pattern stops,
 then return the best match's remaining stops with timing estimates.
 """
 import logging
-from datetime import timedelta
+from datetime import timedelta, timezone
 
 from database.models import Shipment, ShipmentEvent, Carrier, RoutePattern
 from services.geocode import resolve as geocode_resolve
@@ -100,37 +100,69 @@ def _canonical(name, lat, lng) -> str | None:
         return None
     resolved = geocode_resolve(name)
     if resolved:
-        return resolved.city or resolved.country
-    return name.split(",")[0].strip().lower() or None
+        return _normalize_canonical(resolved.city or resolved.country)
+    return _normalize_canonical(name.split(",")[0])
+
+
+def _normalize_canonical(value: str | None) -> str | None:
+    if not value:
+        return None
+    normalized = value.strip().lower()
+    return normalized or None
+
+
+def _pattern_stop_canonical(ps, cache: dict) -> str | None:
+    """Canonical location for a pattern stop.
+
+    Mined patterns store a canonical field; LLM-researched patterns only
+    carry a display name ("Shenzhen, China"), so resolve it the same way
+    shipment events are resolved.
+    """
+    if ps.get("canonical"):
+        return _normalize_canonical(ps["canonical"])
+    name = ps.get("location_name")
+    if not name:
+        return None
+    if name not in cache:
+        cache[name] = _canonical(name, None, None)
+    return cache[name]
 
 
 def _find_best_pattern(current_stops, patterns):
-    """Score each pattern by how well current stops match its prefix."""
+    """Score patterns by subsequence-matching the shipment's stops.
+
+    Real scan sequences are messy (repeated locations with different
+    statuses, country-only entries), so instead of strict positional
+    matching we walk the shipment's stops in order and advance through the
+    pattern whenever its next stop appears.
+    """
     best = None
     best_score = -1
+    canon_cache: dict = {}
 
     for pattern in patterns:
         stops_raw = pattern.stops
         if not stops_raw:
             continue
 
-        match_count = 0
-        matched_to = 0
+        pattern_locs = [_pattern_stop_canonical(ps, canon_cache) for ps in stops_raw]
 
-        for i, ps in enumerate(stops_raw):
-            pattern_loc = ps.get("canonical") or ps.get("location_name", "").lower()
-            if i < len(current_stops):
-                cur_loc = current_stops[i]["canonical"]
-                if pattern_loc == cur_loc:
+        match_count = 0
+        matched_to = 0  # index into pattern stops: first unvisited stop
+        cursor = 0
+        for cur in current_stops:
+            cur_loc = _normalize_canonical(cur["canonical"])
+            for j in range(cursor, len(pattern_locs)):
+                if pattern_locs[j] and pattern_locs[j] == cur_loc:
                     match_count += 1
-                    matched_to = i + 1
-                else:
+                    cursor = j + 1
+                    matched_to = j + 1
                     break
 
         if match_count == 0:
             continue
 
-        # Score: fraction matched, weighted by pattern frequency
+        # Score: fraction matched, weighted by pattern trust
         future_stops = len(stops_raw) - matched_to
         if future_stops <= 0:
             continue
@@ -189,7 +221,7 @@ def _extract_future_stops(pattern, matched_to, start_time):
             "location_lng": lng,
             "status": ps.get("status", "in_transit"),
             "frequency_pct": ps.get("frequency_pct", 100),
-            "eta": eta.isoformat(),
+            "eta": eta.replace(tzinfo=timezone.utc).isoformat(),
             "median_days_from_start": median_days,
             "p10_days": p10_days,
             "p90_days": p90_days,
