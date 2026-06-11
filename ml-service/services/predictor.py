@@ -266,9 +266,28 @@ class ETAPredictor:
 
     def _is_delivered(self, shipment: Shipment) -> bool:
         status = (shipment.status or "").lower()
-        return shipment.delivered_at is not None or (
-            "deliver" in status and "fail" not in status and "exception" not in status
-        )
+        if shipment.delivered_at is not None:
+            return True
+        if any(term in status for term in ("fail", "exception", "attempt")):
+            return False
+        if any(
+            term in status
+            for term in (
+                "out_for_delivery",
+                "out for delivery",
+                "warehouse",
+                "facility",
+                "hub",
+                "sorting",
+                "distribution",
+                "customs",
+                "carrier",
+                "partner",
+                "agent",
+            )
+        ):
+            return False
+        return status in {"delivered", "delivred", "geliefert"}
 
     def _is_predictable_shipment(self, shipment: Shipment) -> bool:
         status = (shipment.status or "").lower()

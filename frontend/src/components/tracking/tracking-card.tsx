@@ -2,7 +2,7 @@
 
 import { CyberCard } from "@/components/ui/cyber-card";
 import { ConfidenceBar, StatusBadge } from "@/components/tracking/timeline";
-import { formatRegionalDateHour } from "@/lib/utils";
+import { formatRegionalDateHour, isDeliveredStatus, normalizedStatus } from "@/lib/utils";
 import { Package, Clock, MapPin, ExternalLink } from "lucide-react";
 import Link from "next/link";
 
@@ -37,9 +37,9 @@ export function TrackingCard({
     <Link href={`/track/${id}`}>
       <CyberCard
         glow={
-          status.toLowerCase().includes("delivered")
+          isDeliveredStatus(status)
             ? "green"
-            : status.toLowerCase().includes("transit")
+            : normalizedStatus(status).includes("transit")
             ? "cyan"
             : "none"
         }

@@ -7,10 +7,11 @@ then return the best match's remaining stops with timing estimates.
 """
 import logging
 from datetime import timedelta, timezone
+from decimal import Decimal
 
 from database.models import Shipment, ShipmentEvent, Carrier, RoutePattern
 from services.geocode import resolve as geocode_resolve
-from services.knowledge import country_from_region
+from services.knowledge import country_from_region, haversine_km
 from services.timeutil import utcnow, to_naive_utc
 
 logger = logging.getLogger("parcelstats.route_predictor")
@@ -52,12 +53,25 @@ def predict_route(db, shipment: Shipment) -> dict | None:
     if not current_stops:
         return None
 
-    best = _find_best_pattern(current_stops, patterns)
+    best = _find_best_pattern(
+        current_stops,
+        patterns,
+        dest_lat=_to_float(shipment.dest_lat),
+        dest_lng=_to_float(shipment.dest_lng),
+    )
     if not best:
         return None
 
     start_time = to_naive_utc(shipment.shipped_at or events[0].event_time)
-    future = _extract_future_stops(best["pattern"], best["matched_to"], start_time)
+    future = _extract_future_stops(
+        best["pattern"],
+        best["matched_to"],
+        start_time,
+        current_stops=current_stops,
+        dest_name=shipment.dest_name,
+        dest_lat=_to_float(shipment.dest_lat),
+        dest_lng=_to_float(shipment.dest_lng),
+    )
     if not future:
         return None
 
@@ -91,6 +105,8 @@ def _build_current_stops(events):
             "canonical": loc,
             "status": evt.status,
             "event_time": evt.event_time,
+            "location_lat": _to_float(evt.location_lat),
+            "location_lng": _to_float(evt.location_lng),
         })
     return stops
 
@@ -111,6 +127,17 @@ def _normalize_canonical(value: str | None) -> str | None:
     return normalized or None
 
 
+def _to_float(value) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, Decimal):
+        return float(value)
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _pattern_stop_canonical(ps, cache: dict) -> str | None:
     """Canonical location for a pattern stop.
 
@@ -128,7 +155,7 @@ def _pattern_stop_canonical(ps, cache: dict) -> str | None:
     return cache[name]
 
 
-def _find_best_pattern(current_stops, patterns):
+def _find_best_pattern(current_stops, patterns, dest_lat=None, dest_lng=None):
     """Score patterns by subsequence-matching the shipment's stops.
 
     Real scan sequences are messy (repeated locations with different
@@ -162,13 +189,19 @@ def _find_best_pattern(current_stops, patterns):
         if match_count == 0:
             continue
 
-        # Score: fraction matched, weighted by pattern trust
+        # Score: fraction matched, weighted by pattern trust and destination fit.
         future_stops = len(stops_raw) - matched_to
         if future_stops <= 0:
             continue
 
         # match_score is a Numeric column - arrives as Decimal from the DB
-        score = (match_count / len(stops_raw)) * float(pattern.match_score or 0.5)
+        base_score = (match_count / len(stops_raw)) * float(pattern.match_score or 0.5)
+        score = base_score * _destination_fit_score(
+            stops_raw,
+            matched_to,
+            dest_lat,
+            dest_lng,
+        )
         if score > best_score:
             best_score = score
             best = {
@@ -180,7 +213,38 @@ def _find_best_pattern(current_stops, patterns):
     return best
 
 
-def _extract_future_stops(pattern, matched_to, start_time):
+def _destination_fit_score(stops_raw, matched_to, dest_lat=None, dest_lng=None) -> float:
+    """Prefer stored routes whose remaining stops get close to this destination."""
+    if dest_lat is None or dest_lng is None:
+        return 1.0
+
+    distances = []
+    for ps in stops_raw[matched_to:]:
+        lat = _to_float(ps.get("location_lat"))
+        lng = _to_float(ps.get("location_lng"))
+        if lat is not None and lng is not None:
+            distances.append(haversine_km(lat, lng, dest_lat, dest_lng))
+
+    if not distances:
+        return 1.0
+
+    best_distance = min(distances)
+    final_distance = distances[-1]
+
+    best_proximity = 1 / (1 + best_distance / 750)
+    final_proximity = 1 / (1 + final_distance / 750)
+    return 0.4 + (0.35 * best_proximity) + (0.25 * final_proximity)
+
+
+def _extract_future_stops(
+    pattern,
+    matched_to,
+    start_time,
+    current_stops=None,
+    dest_name=None,
+    dest_lat=None,
+    dest_lng=None,
+):
     """Return the remaining stops after the matched prefix, with timing.
 
     Pattern stop timings are days-from-journey-start (the same anchor the
@@ -227,4 +291,116 @@ def _extract_future_stops(pattern, matched_to, start_time):
             "p90_days": p90_days,
         })
 
-    return future
+    return _refine_future_stops(
+        future,
+        current_stops=current_stops,
+        dest_name=dest_name,
+        dest_lat=dest_lat,
+        dest_lng=dest_lng,
+    )
+
+
+def _refine_future_stops(
+    future,
+    current_stops=None,
+    dest_name=None,
+    dest_lat=None,
+    dest_lng=None,
+):
+    """Remove noisy repeated predictions and anchor the route to the destination."""
+    if not future:
+        return future
+
+    latest_current = None
+    if current_stops:
+        latest_current = _normalize_canonical(current_stops[-1].get("canonical"))
+
+    dest_canon = _canonical(dest_name, dest_lat, dest_lng) if dest_name else None
+    if dest_name and (dest_lat is None or dest_lng is None):
+        dest_hit = geocode_resolve(dest_name)
+        if dest_hit:
+            dest_lat = dest_hit.lat
+            dest_lng = dest_hit.lng
+    latest_distance = _latest_current_distance_to_destination(current_stops, dest_lat, dest_lng)
+
+    refined = []
+    seen = set()
+    for stop in future:
+        canon = _canonical(stop.get("location_name"), stop.get("location_lat"), stop.get("location_lng"))
+        if canon and canon == latest_current and canon != dest_canon:
+            continue
+        if canon and canon in seen and canon != dest_canon:
+            continue
+        if canon:
+            seen.add(canon)
+        if dest_canon and canon != dest_canon and stop.get("status") == "delivered":
+            stop = {**stop, "status": "arrived_at_facility"}
+        if _is_low_progress_intermediate(stop, dest_canon, latest_distance, dest_lat, dest_lng):
+            continue
+        refined.append(stop)
+
+    if dest_name and dest_canon:
+        last_canon = (
+            _canonical(
+                refined[-1].get("location_name"),
+                refined[-1].get("location_lat"),
+                refined[-1].get("location_lng"),
+            )
+            if refined
+            else None
+        )
+        if last_canon != dest_canon:
+            source = future[-1]
+            refined.append({
+                **source,
+                "stop_order": source.get("stop_order", len(future)),
+                "location_name": dest_name,
+                "location_lat": dest_lat,
+                "location_lng": dest_lng,
+                "status": "delivered",
+                "frequency_pct": 100,
+            })
+        elif refined[-1].get("status") != "delivered":
+            refined[-1] = {
+                **refined[-1],
+                "location_name": dest_name,
+                "location_lat": dest_lat,
+                "location_lng": dest_lng,
+                "status": "delivered",
+                "frequency_pct": 100,
+            }
+
+    return refined
+
+
+def _latest_current_distance_to_destination(current_stops, dest_lat, dest_lng) -> float | None:
+    if not current_stops or dest_lat is None or dest_lng is None:
+        return None
+
+    latest = current_stops[-1]
+    lat = _to_float(latest.get("location_lat"))
+    lng = _to_float(latest.get("location_lng"))
+    if lat is None or lng is None:
+        return None
+    return haversine_km(lat, lng, dest_lat, dest_lng)
+
+
+def _is_low_progress_intermediate(stop, dest_canon, latest_distance, dest_lat, dest_lng) -> bool:
+    """Hide domestic-leg forecast stops that do not meaningfully approach the destination."""
+    if latest_distance is None or latest_distance > 2500:
+        return False
+    if dest_lat is None or dest_lng is None:
+        return False
+
+    canon = _canonical(stop.get("location_name"), stop.get("location_lat"), stop.get("location_lng"))
+    if dest_canon and canon == dest_canon:
+        return False
+
+    lat = _to_float(stop.get("location_lat"))
+    lng = _to_float(stop.get("location_lng"))
+    if lat is None or lng is None:
+        return False
+
+    stop_distance = haversine_km(lat, lng, dest_lat, dest_lng)
+    required_progress = max(100.0, latest_distance * 0.15)
+    return stop_distance > latest_distance - required_progress

@@ -42,27 +42,68 @@ export function formatRegionalDateHour(value: string | Date | null | undefined):
   }).format(date);
 }
 
-function normalizedStatus(status: string): string {
+export function normalizedStatus(status: string): string {
   return status.toLowerCase().replace(/[_-]+/g, " ");
+}
+
+const NON_FINAL_DELIVERY_TERMS = [
+  "out for delivery",
+  "delivery attempt",
+  "attempted delivery",
+  "warehouse",
+  "facility",
+  "hub",
+  "sorting",
+  "distribution",
+  "customs",
+  "carrier",
+  "partner",
+  "agent",
+  "post office",
+  "service point",
+  "pickup point",
+  "collection point",
+];
+
+export function isIssueStatus(status: string): boolean {
+  const s = normalizedStatus(status);
+  return (
+    s.includes("exception") ||
+    s.includes("fail") ||
+    s.includes("error") ||
+    s.includes("auth") ||
+    s.includes("required") ||
+    s.includes("not found") ||
+    s.includes("blocked") ||
+    s.includes("unavailable")
+  );
+}
+
+export function isDeliveredStatus(status: string): boolean {
+  const s = normalizedStatus(status);
+  if (isIssueStatus(status)) return false;
+  if (NON_FINAL_DELIVERY_TERMS.some((term) => s.includes(term))) return false;
+  return /\b(delivered|delivred|geliefert)\b/.test(s);
 }
 
 export function getStatusColor(status: string): string {
   const s = normalizedStatus(status);
-  if (s.includes("deliver") && s.includes("fail")) return "text-cyber-red";
-  if (s.includes("deliver")) return "text-cyber-green";
+  if (isDeliveredStatus(status)) return "text-cyber-green";
   if (s.includes("auth") || s.includes("required") || s.includes("not found")) return "text-cyber-yellow";
+  if (isIssueStatus(status)) return "text-cyber-red";
   if (s.includes("transit")) return "text-cyber-cyan";
   if (s.includes("custom")) return "text-cyber-yellow";
   if (s.includes("out for delivery")) return "text-cyber-purple";
-  if (s.includes("exception")) return "text-cyber-red";
   if (s.includes("pending") || s.includes("label")) return "text-cyber-muted";
   return "text-cyber-text";
 }
 
 export function getStatusBadgeClass(status: string): string {
   const s = normalizedStatus(status);
-  if (s.includes("deliver") && !s.includes("fail")) return "cyber-badge-success";
-  if (s.includes("exception") || s.includes("fail")) return "cyber-badge-danger";
+  if (isDeliveredStatus(status)) return "cyber-badge-success";
+  if (isIssueStatus(status) && !(s.includes("auth") || s.includes("required") || s.includes("not found"))) {
+    return "cyber-badge-danger";
+  }
   if (s.includes("auth") || s.includes("required") || s.includes("not found")) return "cyber-badge-warning";
   if (s.includes("custom")) return "cyber-badge-warning";
   if (s.includes("transit") || s.includes("out for delivery")) return "cyber-badge-info";

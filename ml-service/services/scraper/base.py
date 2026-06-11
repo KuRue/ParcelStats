@@ -3,6 +3,24 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
+NON_FINAL_DELIVERY_TERMS = [
+    "warehouse",
+    "facility",
+    "hub",
+    "sorting",
+    "distribution",
+    "customs",
+    "carrier",
+    "partner",
+    "agent",
+    "post office",
+    "service point",
+    "pickup point",
+    "collection point",
+]
+
+DELIVERY_EXCEPTION_TERMS = ["fail", "exception", "attempt"]
+
 
 class CarrierStatusError(Exception):
     def __init__(self, status: str, message: str, raw_data: Optional[dict] = None):
@@ -91,8 +109,10 @@ class BaseCarrierScraper(ABC):
     def normalize_status(self, raw_status: str) -> str:
         s = raw_status.lower().strip()
         if any(w in s for w in ["delivered", "delivred", "geliefert"]):
-            if any(w in s for w in ["fail", "exception", "attempt"]):
+            if any(w in s for w in DELIVERY_EXCEPTION_TERMS):
                 return "delivery_exception"
+            if any(w in s for w in NON_FINAL_DELIVERY_TERMS):
+                return "arrived_at_facility"
             return "delivered"
         if any(w in s for w in ["out for delivery", "on van", "with driver", "out for del"]):
             return "out_for_delivery"

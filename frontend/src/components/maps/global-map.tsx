@@ -3,7 +3,13 @@
 import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { formatRegionalDateHour, formatStatusLabel } from "@/lib/utils";
+import {
+  formatRegionalDateHour,
+  formatStatusLabel,
+  isDeliveredStatus,
+  isIssueStatus,
+  normalizedStatus,
+} from "@/lib/utils";
 
 interface ShipmentMapItem {
   id: string;
@@ -28,33 +34,13 @@ interface GlobalMapProps {
 }
 
 function getStatusColor(status: string): string {
-  const s = status.toLowerCase().replace(/[_-]+/g, " ");
-  if (s.includes("deliver") && !s.includes("fail")) return "#39ff14";
+  const s = normalizedStatus(status);
+  if (isDeliveredStatus(status)) return "#39ff14";
   if (s.includes("out for delivery")) return "#bf00ff";
   if (s.includes("transit")) return "#00f0ff";
   if (s.includes("custom")) return "#ffdd00";
-  if (s.includes("exception") || s.includes("fail") || s.includes("error")) return "#ff003c";
-  if (isIssueStatus(status)) return "#ffdd00";
+  if (isIssueStatus(status)) return "#ff003c";
   return "#7a8599";
-}
-
-function isIssueStatus(status: string): boolean {
-  const s = status.toLowerCase().replace(/[_-]+/g, " ");
-  return (
-    s.includes("exception") ||
-    s.includes("fail") ||
-    s.includes("error") ||
-    s.includes("auth") ||
-    s.includes("required") ||
-    s.includes("not found") ||
-    s.includes("blocked") ||
-    s.includes("unavailable")
-  );
-}
-
-function isDeliveredStatus(status: string): boolean {
-  const s = status.toLowerCase();
-  return s.includes("deliver") && !isIssueStatus(status);
 }
 
 function createShipmentMarker(color: string, pulse: boolean = false) {

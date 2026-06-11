@@ -53,6 +53,36 @@ def _migrate():
                 "ON route_patterns(carrier_id, origin_country, dest_country)"
             )
         )
+        conn.execute(
+            sa.text(
+                """
+                UPDATE shipment_events
+                SET status = 'arrived_at_facility'
+                WHERE status = 'delivered'
+                  AND lower(concat_ws(' ', description, location_name)) LIKE '%warehouse%'
+                """
+            )
+        )
+        conn.execute(
+            sa.text(
+                """
+                WITH latest AS (
+                    SELECT DISTINCT ON (shipment_id)
+                        shipment_id,
+                        lower(concat_ws(' ', status, description, location_name)) AS text
+                    FROM shipment_events
+                    ORDER BY shipment_id, event_time DESC
+                )
+                UPDATE shipments AS s
+                SET status = 'arrived_at_facility',
+                    delivered_at = NULL
+                FROM latest
+                WHERE s.id = latest.shipment_id
+                  AND s.status = 'delivered'
+                  AND latest.text LIKE '%warehouse%'
+                """
+            )
+        )
         conn.commit()
 
 app = FastAPI(

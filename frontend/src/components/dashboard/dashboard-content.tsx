@@ -19,7 +19,7 @@ import {
 import { useEventStream } from "@/hooks/use-event-stream";
 import ParcelGlobe, { webglAvailable } from "@/components/globe/parcel-globe-dynamic";
 import GlobalMap from "@/components/maps/global-map-dynamic";
-import { formatRegionalDateHour } from "@/lib/utils";
+import { formatRegionalDateHour, isDeliveredStatus, isIssueStatus } from "@/lib/utils";
 import {
   detectCarrierSlug,
   isSpeedPakTrackingNumber,
@@ -66,26 +66,6 @@ function statusRank(status: string): number {
   if (isDeliveredStatus(status)) return 3;
   if (isIssueStatus(status)) return 2;
   return 1;
-}
-
-function isIssueStatus(status: string): boolean {
-  const s = status.toLowerCase();
-  return (
-    s.includes("exception") ||
-    s.includes("fail") ||
-    s.includes("error") ||
-    s.includes("auth") ||
-    s.includes("required") ||
-    s.includes("not_found") ||
-    s.includes("not found") ||
-    s.includes("blocked") ||
-    s.includes("unavailable")
-  );
-}
-
-function isDeliveredStatus(status: string): boolean {
-  const s = status.toLowerCase();
-  return s.includes("deliver") && !isIssueStatus(status);
 }
 
 function updatedAtTime(tracking: Tracking): number {

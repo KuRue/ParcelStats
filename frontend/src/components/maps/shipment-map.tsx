@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { formatStatusLabel } from "@/lib/utils";
+import { formatStatusLabel, isDeliveredStatus, isIssueStatus, normalizedStatus } from "@/lib/utils";
 
 interface MapEvent {
   status: string;
@@ -116,13 +116,12 @@ function createEndpointIcon(label: string, color: string) {
 }
 
 function getStatusColor(status: string): string {
-  const s = status.toLowerCase();
-  if (s.includes("deliver") && !s.includes("fail") && !s.includes("exception"))
-    return "#39ff14";
+  const s = normalizedStatus(status);
+  if (isDeliveredStatus(status)) return "#39ff14";
   if (s.includes("out for delivery")) return "#bf00ff";
   if (s.includes("transit")) return "#00f0ff";
   if (s.includes("custom")) return "#ffdd00";
-  if (s.includes("exception") || s.includes("fail")) return "#ff003c";
+  if (isIssueStatus(status)) return "#ff003c";
   if (s.includes("arrived") || s.includes("departed")) return "#00f0ff";
   return "#7a8599";
 }
@@ -347,7 +346,7 @@ export function ShipmentRouteMap({
 
     if (destLat != null && destLng != null) {
       const destColor =
-        status.toLowerCase() === "delivered" ? "#39ff14" : "#00f0ff";
+        isDeliveredStatus(status) ? "#39ff14" : "#00f0ff";
       const destMarker = L.marker([destLat, destLng], {
         icon: createEndpointIcon("D", destColor),
       }).addTo(map);

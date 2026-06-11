@@ -8,6 +8,7 @@ interface TimelineEvent {
   description?: string;
   time: string;
   isLatest?: boolean;
+  predicted?: boolean;
 }
 
 export function TrackingTimeline({ events }: { events: TimelineEvent[] }) {
@@ -18,26 +19,42 @@ export function TrackingTimeline({ events }: { events: TimelineEvent[] }) {
           <div
             className={cn(
               "cyber-timeline-dot shrink-0",
-              event.isLatest && "cyber-timeline-dot-active"
+              event.isLatest && "cyber-timeline-dot-active",
+              event.predicted && "border-cyber-purple/60"
             )}
           >
             <div
               className={cn(
                 "w-2 h-2 rounded-full",
-                event.isLatest ? "bg-cyber-green" : "bg-cyber-cyan"
+                event.predicted
+                  ? "bg-cyber-purple"
+                  : event.isLatest
+                    ? "bg-cyber-green"
+                    : "bg-cyber-cyan"
               )}
             />
           </div>
           <div className="flex-1 min-w-0 pb-2">
             <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between sm:gap-2">
               <div className="min-w-0">
+                {event.predicted && (
+                  <span className="mb-1 inline-flex rounded border border-cyber-purple/40 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wide text-cyber-purple">
+                    Forecast
+                  </span>
+                )}
                 <p
                   className={cn(
                     "text-sm font-mono font-medium break-words",
-                    event.isLatest ? "text-cyber-green" : "text-cyber-text"
+                    event.predicted
+                      ? "text-cyber-purple"
+                      : event.isLatest
+                        ? "text-cyber-green"
+                        : "text-cyber-text"
                   )}
                 >
-                  {formatStatusLabel(event.status)}
+                  {event.predicted
+                    ? `Predicted ${formatStatusLabel(event.status).toLowerCase()}`
+                    : formatStatusLabel(event.status)}
                 </p>
                 {event.location && (
                   <p className="text-xs text-cyber-muted break-words">{event.location}</p>

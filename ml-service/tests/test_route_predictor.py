@@ -26,6 +26,16 @@ def stop(canonical, order, median_days, status="in_transit", lat=None, lng=None)
     }
 
 
+COORDS = {
+    "shenzhen": (22.55, 114.07),
+    "hong kong": (22.32, 114.17),
+    "chicago": (41.85, -87.65),
+    "new york": (40.71, -74.0),
+    "atlanta": (33.75, -84.39),
+    "largo": (27.9098, -82.7884),
+}
+
+
 PATTERN_CN_US = FakePattern([
     stop("shenzhen", 0, 0.2, lat=22.55, lng=114.07),
     stop("hong kong", 1, 1.5, lat=22.32, lng=114.17),
@@ -36,7 +46,13 @@ PATTERN_CN_US = FakePattern([
 
 def current(canonicals):
     return [
-        {"canonical": c, "status": "in_transit", "event_time": datetime(2026, 6, i + 1)}
+        {
+            "canonical": c,
+            "status": "in_transit",
+            "event_time": datetime(2026, 6, i + 1),
+            "location_lat": COORDS.get(c, (None, None))[0],
+            "location_lng": COORDS.get(c, (None, None))[1],
+        }
         for i, c in enumerate(canonicals)
     ]
 
@@ -81,6 +97,35 @@ def test_prefers_better_matching_pattern():
     assert best["pattern"] is PATTERN_CN_US
 
 
+def test_prefers_destination_compatible_pattern():
+    northeast = FakePattern(
+        [
+            stop("shenzhen", 0, 0.2, lat=22.55, lng=114.07),
+            stop("chicago", 1, 8.0, lat=41.85, lng=-87.65),
+            stop("new york", 2, 10.0, status="delivered", lat=40.71, lng=-74.0),
+        ],
+        match_score=0.8,
+    )
+    southeast = FakePattern(
+        [
+            stop("shenzhen", 0, 0.2, lat=22.55, lng=114.07),
+            stop("chicago", 1, 8.0, lat=41.85, lng=-87.65),
+            stop("atlanta", 2, 10.0, lat=33.75, lng=-84.39),
+            stop("largo", 3, 12.0, status="delivered", lat=27.9098, lng=-82.7884),
+        ],
+        match_score=0.8,
+    )
+
+    best = _find_best_pattern(
+        current(["shenzhen", "chicago"]),
+        [northeast, southeast],
+        dest_lat=27.9098,
+        dest_lng=-82.7884,
+    )
+
+    assert best["pattern"] is southeast
+
+
 def test_eta_anchored_to_journey_start_and_clamped():
     # Journey started long ago: ETAs in the past get clamped to "soon"
     best = _find_best_pattern(current(["shenzhen", "hong kong"]), [PATTERN_CN_US])
@@ -107,3 +152,27 @@ def test_geocodes_stops_missing_coordinates():
     future = _extract_future_stops(best["pattern"], best["matched_to"], datetime(2099, 1, 1))
     assert future[0]["location_lat"] is not None
     assert abs(future[0]["location_lat"] - 35.15) < 0.5
+
+
+def test_future_stops_collapse_repeats_and_end_at_destination():
+    noisy_pattern = FakePattern([
+        stop("shenzhen", 0, 0.2),
+        stop("chicago", 1, 8.0, lat=41.85, lng=-87.65),
+        stop("new york", 2, 9.0, lat=40.71, lng=-74.0),
+        stop("new york", 3, 10.0, lat=40.71, lng=-74.0),
+        stop("new york", 4, 11.0, status="delivered", lat=40.71, lng=-74.0),
+    ])
+    best = _find_best_pattern(current(["shenzhen", "chicago"]), [noisy_pattern])
+    future = _extract_future_stops(
+        best["pattern"],
+        best["matched_to"],
+        datetime(2026, 6, 1),
+        current_stops=current(["shenzhen", "chicago"]),
+        dest_name="Largo, FL",
+        dest_lat=27.9098,
+        dest_lng=-82.7884,
+    )
+
+    assert [f["location_name"] for f in future] == ["Largo, FL"]
+    assert future[-1]["status"] == "delivered"
+    assert future[-1]["location_lat"] == 27.9098

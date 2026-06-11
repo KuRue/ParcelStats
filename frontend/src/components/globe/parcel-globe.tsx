@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import Globe, { GlobeMethods } from "react-globe.gl";
 import * as THREE from "three";
+import { isDeliveredStatus, isIssueStatus } from "@/lib/utils";
 
 export interface GlobeShipment {
   id: string;
@@ -35,25 +36,9 @@ const COLORS = {
   pending: "#ffdd00",
 };
 
-function isIssue(status: string) {
-  const s = status.toLowerCase();
-  return (
-    s.includes("exception") ||
-    s.includes("fail") ||
-    s.includes("error") ||
-    s.includes("required") ||
-    s.includes("not_found") ||
-    s.includes("blocked")
-  );
-}
-
-function isDelivered(status: string) {
-  return status.toLowerCase().includes("deliver") && !isIssue(status);
-}
-
 function statusColor(status: string): string {
-  if (isDelivered(status)) return COLORS.delivered;
-  if (isIssue(status)) return COLORS.issue;
+  if (isDeliveredStatus(status)) return COLORS.delivered;
+  if (isIssueStatus(status)) return COLORS.issue;
   return COLORS.traveled;
 }
 
@@ -197,7 +182,7 @@ export default function ParcelGlobe({ shipments, selectedId, onSelect }: ParcelG
 
     for (const s of shipments) {
       const { origin, dest, trail, current } = journeyOf(s);
-      const delivered = isDelivered(s.status);
+      const delivered = isDeliveredStatus(s.status);
       const color = statusColor(s.status);
 
       for (let i = 0; i < trail.length - 1; i++) {

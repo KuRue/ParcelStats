@@ -16,6 +16,18 @@ def test_normalize_delivered():
     assert s.normalize_status("Package delivered") == "delivered"
 
 
+def test_normalize_delivered_to_warehouse_is_not_terminal():
+    class S(BaseCarrierScraper):
+        slug = "test"
+        name = "Test"
+        async def track(self, tracking_number: str) -> ScrapedShipment:
+            pass
+
+    s = S()
+    assert s.normalize_status("Delivered to warehouse") == "arrived_at_facility"
+    assert s.normalize_status("Delivered to destination hub") == "arrived_at_facility"
+
+
 def test_normalize_delivery_exception():
     class S(BaseCarrierScraper):
         slug = "test"

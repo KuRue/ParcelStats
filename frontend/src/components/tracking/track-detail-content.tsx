@@ -20,7 +20,12 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import ShipmentRouteMap from "@/components/maps/shipment-map-dynamic";
-import { formatRegionalDateHour, formatConfidence } from "@/lib/utils";
+import {
+  formatRegionalDateHour,
+  formatConfidence,
+  isDeliveredStatus,
+  isIssueStatus,
+} from "@/lib/utils";
 
 interface ShipmentDetail {
   canDelete?: boolean;
@@ -86,22 +91,6 @@ interface RoutePrediction {
   };
 }
 
-function isIssueStatus(status: string): boolean {
-  const s = status.toLowerCase();
-  return (
-    s.includes("exception") ||
-    s.includes("fail") ||
-    s.includes("error") ||
-    s.includes("required") ||
-    s.includes("not_found") ||
-    s.includes("blocked")
-  );
-}
-
-function isDeliveredStatus(status: string): boolean {
-  return status.toLowerCase().includes("deliver") && !isIssueStatus(status);
-}
-
 function placeName(location: string | null): string {
   if (!location) return "Unknown";
   return location.split(",")[0].trim() || "Unknown";
@@ -141,7 +130,6 @@ export function TrackDetailContent({
   const [pendingPrediction, setPendingPrediction] = useState(false);
   const fetchedPredictionRef = useRef(false);
   const [routePrediction, setRoutePrediction] = useState<RoutePrediction | null>(null);
-  const [routeLoading, setRouteLoading] = useState(false);
 
   const handleDelete = useCallback(async () => {
     if (!window.confirm("Stop tracking this shipment? This cannot be undone.")) {
@@ -175,6 +163,8 @@ export function TrackDetailContent({
       }
     } catch {}
   }, [shipmentId]);
+  const loadedStatus = data?.status ?? "";
+  const loadedShippedAt = data?.shippedAt ?? null;
 
   useEffect(() => {
     async function load() {
@@ -229,10 +219,9 @@ export function TrackDetailContent({
 
   // Fetch route prediction (future stops) after initial load
   useEffect(() => {
-    if (!data || !data.shippedAt) return;
-    if (isDeliveredStatus(data.status) || isIssueStatus(data.status)) return;
+    if (!loadedStatus || !loadedShippedAt) return;
+    if (isDeliveredStatus(loadedStatus) || isIssueStatus(loadedStatus)) return;
 
-    setRouteLoading(true);
     fetch(`/api/predictions/shipment-route/${shipmentId}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((result) => {
@@ -241,8 +230,7 @@ export function TrackDetailContent({
         }
       })
       .catch(() => {})
-      .finally(() => setRouteLoading(false));
-  }, [shipmentId, data?.shippedAt]);
+  }, [shipmentId, loadedShippedAt, loadedStatus]);
 
   useEventStream({
     onUpdate: (event) => {
@@ -250,7 +238,7 @@ export function TrackDetailContent({
         loadData();
       }
     },
-    enabled: !!data && data.status.toLowerCase() !== "delivered",
+    enabled: !!data && !isDeliveredStatus(data.status),
   });
 
   if (loading) {
@@ -303,6 +291,40 @@ export function TrackDetailContent({
   const confidence = data.prediction
     ? formatConfidence(data.prediction.confidencePct)
     : null;
+  const futureStops = routePrediction?.route?.futureStops ?? [];
+  const timelineEvents = [
+    ...data.events.map((e, i) => ({
+      status: e.status,
+      location: e.locationName || undefined,
+      description: e.description || undefined,
+      time: eventTimeLabel(e.eventTime),
+      isLatest: i === 0,
+    })),
+    ...futureStops.map((stop) => {
+      const etaDate = new Date(stop.eta);
+      const common =
+        stop.frequencyPct < 100
+          ? `${Math.round(stop.frequencyPct)}% common`
+          : "Expected destination";
+      const sampleText = routePrediction?.route?.sampleCount
+        ? `${routePrediction.route.sampleCount} route samples`
+        : "Route forecast";
+
+      return {
+        status: stop.status,
+        location: stop.locationName,
+        description: `${common} · ${sampleText}`,
+        time: !Number.isNaN(etaDate.getTime())
+          ? formatRegionalDateHour(etaDate)
+          : "Timing unknown",
+        predicted: true,
+      };
+    }),
+  ];
+  const timelineTitle =
+    futureStops.length > 0
+      ? `Tracking Events (${data.events.length} + ${futureStops.length} forecast)`
+      : `Tracking Events (${data.events.length})`;
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-6 md:py-8 pb-24 md:pb-8">
@@ -483,26 +505,18 @@ export function TrackDetailContent({
               destLng={data.destLng ? parseFloat(data.destLng) : null}
               destName={data.destName}
               status={data.status}
-              futureStops={routePrediction?.route?.futureStops}
+              futureStops={futureStops}
             />
           </CyberCard>
 
-          <CyberCard terminal title={`Tracking Events (${data.events.length})`}>
-            {data.events.length === 0 ? (
+          <CyberCard terminal title={timelineTitle}>
+            {timelineEvents.length === 0 ? (
               <p className="py-6 text-center font-mono text-xs text-cyber-muted">
                 No scans yet — events appear here once the carrier registers the
                 package.
               </p>
             ) : (
-              <TrackingTimeline
-                events={data.events.map((e, i) => ({
-                  status: e.status,
-                  location: e.locationName || undefined,
-                  description: e.description || undefined,
-                  time: eventTimeLabel(e.eventTime),
-                  isLatest: i === 0,
-                }))}
-              />
+              <TrackingTimeline events={timelineEvents} />
             )}
           </CyberCard>
         </div>
@@ -552,40 +566,6 @@ export function TrackDetailContent({
                     </span>
                   )}
                 </p>
-              </div>
-            </CyberCard>
-          )}
-
-          {routePrediction?.route && !delivered && (
-            <CyberCard terminal title="Predicted Route">
-              <div className="space-y-3">
-                <p className="text-[10px] font-mono text-cyber-muted/60">
-                  Based on {routePrediction.route.sampleCount} historical
-                  shipments · score {Math.round(routePrediction.route.score * 100)}%
-                </p>
-                <div className="relative pl-4 border-l border-cyber-border/40 space-y-3">
-                  {routePrediction.route.futureStops.map((stop, i) => {
-                    const etaDate = new Date(stop.eta);
-                    return (
-                      <div key={stop.stopOrder} className="relative">
-                        <div className="absolute -left-[17px] top-1 h-2.5 w-2.5 rounded-full border-2 border-cyber-cyan/60 bg-cyber-card" />
-                        <p className="text-xs font-mono text-cyber-text leading-tight">
-                          {stop.locationName}
-                        </p>
-                        <p className="text-[10px] font-mono text-cyber-muted/70 mt-0.5">
-                          {!Number.isNaN(etaDate.getTime())
-                            ? formatRegionalDateHour(etaDate)
-                            : "Timing unknown"}
-                          {stop.frequencyPct < 100 && (
-                            <span className="ml-1.5 text-cyber-muted/50">
-                              · {stop.frequencyPct}% common
-                            </span>
-                          )}
-                        </p>
-                      </div>
-                    );
-                  })}
-                </div>
               </div>
             </CyberCard>
           )}
