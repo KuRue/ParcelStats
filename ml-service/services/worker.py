@@ -89,6 +89,8 @@ class ScrapeWorker:
         self._started_at: Optional[datetime] = None
         self._redis_pub = redis.from_url(settings.redis_url, decode_responses=True)
         self.health = ScraperHealth()
+        # lane_key -> datetime; prevents re-researching the same lane too often
+        self._last_lane_research: dict[str, datetime] = {}
 
     async def start(self):
         if self.running:
@@ -289,6 +291,8 @@ class ScrapeWorker:
                 except Exception as e:
                     logger.warning(f"Prediction failed for {shipment_id}: {e}")
 
+                self._research_lane_if_needed(shipment, result)
+
                 scrape_job.status = "completed"
                 scrape_job.completed_at = utcnow()
                 db.commit()
@@ -369,6 +373,54 @@ class ScrapeWorker:
                 )
         except Exception as e:
             logger.warning(f"Failed to publish event: {e}")
+
+    def _research_lane_if_needed(self, shipment, result):
+        """After a successful scrape, research the lane if it has no pattern.
+
+        Uses in-memory rate limiting (once per lane per 24h).
+        """
+        from services.knowledge import country_from_region
+        from services.agent.research import RouteResearchAgent
+
+        agent = RouteResearchAgent()
+        if not agent.available:
+            return
+
+        oc = country_from_region(shipment.origin_name or "")
+        dc = country_from_region(shipment.dest_name or "")
+        if oc == "??" or dc == "??":
+            return
+
+        lane_key = f"{shipment.carrier_id}:{oc}:{dc}"
+        now = utcnow()
+        last = self._last_lane_research.get(lane_key)
+        if last and (now - last).total_seconds() < 86400:
+            return
+
+        db = SessionLocal()
+        try:
+            from database.models import RoutePattern
+            has_pattern = db.query(RoutePattern).filter(
+                RoutePattern.carrier_id == shipment.carrier_id,
+                RoutePattern.origin_country == oc,
+                RoutePattern.dest_country == dc,
+            ).first()
+            if has_pattern:
+                self._last_lane_research[lane_key] = now
+                return
+        finally:
+            db.close()
+
+        self._last_lane_research[lane_key] = now
+        try:
+            result = agent.research_and_store(
+                shipment.carrier.slug if hasattr(shipment, "carrier") else None or "",
+                oc, dc,
+            )
+            if result.get("created"):
+                logger.info(f"Event-driven research created pattern for {lane_key}")
+        except Exception as e:
+            logger.warning(f"Event-driven research failed for {lane_key}: {e}")
 
     def get_status(self) -> dict:
         queue_stats = self.queue.get_stats()

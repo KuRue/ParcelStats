@@ -11,6 +11,8 @@ import {
   RefreshCw,
   Server,
   AlertTriangle,
+  Search,
+  Globe,
 } from "lucide-react";
 
 interface AdminStats {
@@ -74,7 +76,15 @@ interface ModelInfo {
     by_model: Record<string, AccuracyBucket>;
     by_carrier: Record<string, AccuracyBucket>;
   } | null;
+  research: {
+    agent_available: boolean;
+    model: string | null;
+    patterns: { total: number; mined: number; llm_researched: number };
+    missing_lanes: number;
+  } | null;
 }
+
+type AdminAction = "retrain" | "research-missing" | "research-lane";
 
 export function AdminContent() {
   const [stats, setStats] = useState<AdminStats | null>(null);
@@ -82,6 +92,9 @@ export function AdminContent() {
   const [loading, setLoading] = useState(true);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [laneCarrier, setLaneCarrier] = useState("");
+  const [laneOrigin, setLaneOrigin] = useState("");
+  const [laneDest, setLaneDest] = useState("");
 
   const loadAll = useCallback(async () => {
     const [statsRes, modelRes] = await Promise.all([
@@ -97,19 +110,25 @@ export function AdminContent() {
   }, [loadAll]);
 
   const runAction = useCallback(
-    async (action: "retrain") => {
+    async (action: AdminAction, extra?: { carrierSlug?: string; originCountry?: string; destCountry?: string }) => {
       setBusy(true);
       setActionMsg(null);
       try {
         const res = await fetch("/api/admin/model", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action }),
+          body: JSON.stringify({ action, ...extra }),
         });
         const body = await res.json();
+        const label =
+          action === "retrain"
+            ? "Retraining"
+            : action === "research-missing"
+              ? "Researching missing lanes"
+              : "Researching lane";
         setActionMsg(
           res.ok
-            ? `Retraining started (${body.status ?? "ok"})`
+            ? `${label} started (${body.status ?? "ok"})`
             : `Failed: ${body.error ?? res.status}`
         );
       } catch {
@@ -401,6 +420,85 @@ export function AdminContent() {
           )}
         </CyberCard>
       </div>
+
+      {/* Route Research */}
+      <CyberCard terminal title="Route Research" glow="purple" className="mb-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-sm font-display tracking-wide text-cyber-purple flex items-center gap-2">
+            <Globe className="w-4 h-4" />
+            Agent status
+          </h2>
+        </div>
+
+        {model?.research ? (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+            <StatCard label="Agent" value={model.research.agent_available ? "Active" : "Off"} color={model.research.agent_available ? "green" : "yellow"} />
+            <StatCard label="Route Patterns" value={model.research.patterns.total} color="purple" sub={`${model.research.patterns.mined} mined · ${model.research.patterns.llm_researched} LLM`} />
+            <StatCard label="Missing Lanes" value={model.research.missing_lanes} color={model.research.missing_lanes > 0 ? "yellow" : "green"} sub="Active shipments without patterns" />
+            <StatCard label="LLM Model" value={model.research.model ?? "N/A"} color="cyan" />
+          </div>
+        ) : (
+          <p className="text-xs text-cyber-muted font-mono mb-4">
+            Agent status unavailable.
+          </p>
+        )}
+
+        {actionMsg && (
+          <p className="text-xs font-mono text-cyber-yellow mb-3">{actionMsg}</p>
+        )}
+
+        <div className="flex flex-wrap gap-2 mb-4">
+          <button
+            onClick={() => runAction("research-missing")}
+            disabled={busy}
+            className="cyber-btn text-xs disabled:opacity-50"
+          >
+            <Search className="w-3 h-3 mr-1 inline" />
+            Research Missing
+          </button>
+        </div>
+
+        <div className="border-t border-cyber-border/30 pt-4">
+          <p className="text-xs text-cyber-muted font-mono mb-2">
+            Research a specific lane:
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <input
+              value={laneCarrier}
+              onChange={(e) => setLaneCarrier(e.target.value)}
+              placeholder="Carrier slug (e.g. speedpak)"
+              className="cyber-input text-xs w-32"
+            />
+            <input
+              value={laneOrigin}
+              onChange={(e) => setLaneOrigin(e.target.value)}
+              placeholder="Origin (e.g. CN)"
+              className="cyber-input text-xs w-20"
+            />
+            <input
+              value={laneDest}
+              onChange={(e) => setLaneDest(e.target.value)}
+              placeholder="Dest (e.g. US)"
+              className="cyber-input text-xs w-20"
+            />
+            <button
+              onClick={() => {
+                if (laneCarrier && laneOrigin && laneDest) {
+                  runAction("research-lane", {
+                    carrierSlug: laneCarrier,
+                    originCountry: laneOrigin,
+                    destCountry: laneDest,
+                  });
+                }
+              }}
+              disabled={busy || !laneCarrier || !laneOrigin || !laneDest}
+              className="cyber-btn text-xs disabled:opacity-50"
+            >
+              Research Lane
+            </button>
+          </div>
+        </div>
+      </CyberCard>
 
       {/* Accuracy + top users */}
       <div className="grid lg:grid-cols-2 gap-6">

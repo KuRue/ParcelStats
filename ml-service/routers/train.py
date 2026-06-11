@@ -45,7 +45,50 @@ async def trigger_research_missing(background_tasks: BackgroundTasks):
     return {"status": "research_missing_started"}
 
 
-@router.get("/status")
+@router.get("/research-status")
+async def research_status():
+    agent = RouteResearchAgent()
+    from database.connection import SessionLocal
+    from database.models import RoutePattern, Shipment
+    from services.knowledge import country_from_region
+
+    db = SessionLocal()
+    try:
+        total_patterns = db.query(RoutePattern).count()
+        llm_patterns = db.query(RoutePattern).filter(RoutePattern.match_score < 0.5).count()
+        mined_patterns = total_patterns - llm_patterns
+
+        active_shipments = db.query(Shipment).filter(
+            Shipment.delivered_at.is_(None),
+            Shipment.origin_name.isnot(None),
+            Shipment.dest_name.isnot(None),
+        ).all()
+
+        covered = set()
+        for rp in db.query(RoutePattern.carrier_id, RoutePattern.origin_country, RoutePattern.dest_country).all():
+            covered.add((rp.carrier_id, rp.origin_country, rp.dest_country))
+
+        missing = 0
+        for s in active_shipments:
+            oc = country_from_region(s.origin_name or "")
+            dc = country_from_region(s.dest_name or "")
+            if oc == "??" or dc == "??":
+                continue
+            if (s.carrier_id, oc, dc) not in covered:
+                missing += 1
+    finally:
+        db.close()
+
+    return {
+        "agent_available": agent.available,
+        "model": agent.model if agent.available else None,
+        "patterns": {
+            "total": total_patterns,
+            "mined": mined_patterns,
+            "llm_researched": llm_patterns,
+        },
+        "missing_lanes": missing,
+    }
 async def training_status():
     from database.connection import SessionLocal
     from database.models import ModelVersion
