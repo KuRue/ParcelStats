@@ -352,16 +352,11 @@ export default function ParcelGlobe({ shipments, selectedId, onSelect }: ParcelG
           showAtmosphere
           atmosphereColor="#00f0ff"
           atmosphereAltitude={0.16}
-          hexPolygonsData={land}
-          hexPolygonResolution={3}
-          hexPolygonMargin={0.62}
-          hexPolygonUseDots
-          hexPolygonColor={() => "rgba(0,240,255,0.28)"}
           polygonsData={land}
-          polygonCapColor={() => "rgba(0,0,0,0)"}
+          polygonCapColor={() => "rgba(0,180,200,0.13)"}
           polygonSideColor={() => "rgba(0,0,0,0)"}
-          polygonStrokeColor={() => "rgba(0,240,255,0.16)"}
-          polygonAltitude={0.002}
+          polygonStrokeColor={() => "rgba(0,240,255,0.30)"}
+          polygonAltitude={0.004}
           polygonsTransitionDuration={0}
           arcsData={arcs}
           arcColor={arcColor}
