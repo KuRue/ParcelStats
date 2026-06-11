@@ -213,12 +213,16 @@ def country_from_region(region: str) -> str:
     code = key.upper()
     if len(code) == 2:
         return code
+    from services.geo import normalize_country
     for part in reversed(key.split(",")):
         part = part.strip()
         if part in COUNTRY_CODE_MAP:
             return COUNTRY_CODE_MAP[part]
         if len(part) == 2:
             return part.upper()
+        norm = normalize_country(part)
+        if norm != part and len(norm) == 2:
+            return norm.upper()
     return "??"
 
 

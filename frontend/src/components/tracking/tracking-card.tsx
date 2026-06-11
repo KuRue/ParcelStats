@@ -16,6 +16,7 @@ interface TrackingCardProps {
   lastLocation?: string;
   estimatedDelivery?: string;
   confidencePct?: number;
+  predictionSource?: string | null;
   updatedAt?: string;
 }
 
@@ -29,6 +30,7 @@ export function TrackingCard({
   lastLocation,
   estimatedDelivery,
   confidencePct,
+  predictionSource,
   updatedAt,
 }: TrackingCardProps) {
   return (
@@ -84,8 +86,19 @@ export function TrackingCard({
             )}
 
             {confidencePct !== undefined && (
-              <div className="w-24 shrink-0">
-                <ConfidenceBar value={confidencePct} />
+              <div className="flex items-center gap-1.5 shrink-0">
+                <div className="w-20">
+                  <ConfidenceBar value={confidencePct} />
+                </div>
+                {predictionSource && (
+                  <span className="text-[9px] font-mono text-cyber-muted/50 border border-cyber-border/30 rounded px-1">
+                    {predictionSource === "knowledge+lanes"
+                      ? "CAL"
+                      : predictionSource === "knowledge"
+                        ? "KB"
+                        : "ML"}
+                  </span>
+                )}
               </div>
             )}
 

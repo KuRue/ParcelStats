@@ -42,6 +42,8 @@ export async function GET() {
       shipmentId: predictions.shipmentId,
       predictedDelivery: predictions.predictedDelivery,
       confidencePct: predictions.confidencePct,
+      modelVersion: predictions.modelVersion,
+      features: predictions.features,
     })
     .from(predictions)
     .where(notInArray(predictions.modelVersion, LEGACY_FALLBACK_MODELS))
@@ -93,6 +95,8 @@ export async function GET() {
       lastLng: latestEvents.locationLng,
       predictedDelivery: latestPredictions.predictedDelivery,
       confidencePct: latestPredictions.confidencePct,
+      modelVersion: latestPredictions.modelVersion,
+      features: latestPredictions.features,
       path: eventPaths.points,
     })
     .from(shipments)
@@ -103,7 +107,7 @@ export async function GET() {
     .where(eq(shipments.userId, session.user.id))
     .orderBy(desc(shipments.updatedAt));
 
-  const enriched = rows.map(({ predictedDelivery, confidencePct, ...s }) => ({
+  const enriched = rows.map(({ predictedDelivery, confidencePct, modelVersion, features, ...s }) => ({
     ...s,
     estimatedDelivery: s.estimatedDelivery ?? predictedDelivery ?? null,
     lastEvent: s.lastEvent || null,
@@ -111,6 +115,7 @@ export async function GET() {
     lastLat: s.lastLat || null,
     lastLng: s.lastLng || null,
     confidencePct: confidencePct ? parseFloat(confidencePct) : null,
+    predictionSource: (features as Record<string, string> | null)?.source ?? null,
     path: s.path ?? [],
   }));
 

@@ -33,6 +33,7 @@ interface Tracking {
   status: string;
   estimatedDelivery: string | null;
   confidencePct: number | null;
+  predictionSource: string | null;
   lastEvent: string | null;
   lastLocation: string | null;
   lastLat: string | null;
@@ -421,6 +422,15 @@ export function DashboardContent({ userId }: { userId: string }) {
               {selected.confidencePct != null && (
                 <span className="font-mono text-[10px] text-cyber-muted">
                   {Math.round(selected.confidencePct)}% conf
+                  {selected.predictionSource && (
+                    <span className="ml-1 text-cyber-muted/50">
+                      ({selected.predictionSource === "knowledge+lanes"
+                        ? "calibrated"
+                        : selected.predictionSource === "knowledge"
+                          ? "baseline"
+                          : "ML"})
+                    </span>
+                  )}
                 </span>
               )}
             </div>

@@ -86,6 +86,8 @@ export async function GET(
           confidenceHigh: prediction.confidenceHigh,
           confidencePct: prediction.confidencePct ? parseFloat(prediction.confidencePct) : 0,
           modelVersion: prediction.modelVersion,
+          predictionSource: (prediction.features as Record<string, string> | null)?.source ?? null,
+          calibrationSamples: (prediction.features as Record<string, number> | null)?.calibrationSamples ?? null,
         }
       : null,
   });

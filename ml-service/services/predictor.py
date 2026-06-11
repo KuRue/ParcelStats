@@ -289,8 +289,6 @@ class ETAPredictor:
             return False
         if not shipment.origin_name or not shipment.dest_name:
             return False
-        if len(shipment.events or []) < 2:
-            return False
         return True
 
     def _to_datetime(self, value):

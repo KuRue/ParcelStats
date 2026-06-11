@@ -52,6 +52,8 @@ interface ShipmentDetail {
     confidenceHigh: string | null;
     confidencePct: number;
     modelVersion: string;
+    predictionSource: string | null;
+    calibrationSamples: number | null;
   } | null;
 }
 
@@ -456,6 +458,15 @@ export function TrackDetailContent({
 
                 <p className="text-[10px] text-cyber-muted/60 font-mono">
                   Model {data.prediction.modelVersion}
+                  {data.prediction.predictionSource && (
+                    <span className="ml-2 px-1.5 py-0.5 rounded text-[9px] border border-cyber-cyan/30 text-cyber-cyan/80">
+                      {data.prediction.predictionSource === "knowledge+lanes"
+                        ? "Calibrated"
+                        : data.prediction.predictionSource === "knowledge"
+                          ? "Baseline"
+                          : "ML"}
+                    </span>
+                  )}
                 </p>
               </div>
             </CyberCard>
