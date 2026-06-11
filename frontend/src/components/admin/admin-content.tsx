@@ -81,10 +81,57 @@ interface ModelInfo {
     model: string | null;
     patterns: { total: number; mined: number; llm_researched: number };
     missing_lanes: number;
+    job: ResearchJob | null;
   } | null;
 }
 
+interface ResearchJob {
+  state: "idle" | "running" | "completed" | "failed";
+  action: string | null;
+  phase: string;
+  message: string;
+  current: number;
+  total: number;
+  candidates: number;
+  created: number;
+  skipped: number;
+  failed: number;
+  current_lane: { carrier: string; origin: string; dest: string } | null;
+  recent_results: {
+    carrier: string | null;
+    origin: string | null;
+    dest: string | null;
+    created: boolean;
+    error: string | null;
+    message: string | null;
+    stops_count: number | null;
+  }[];
+  started_at: string | null;
+  updated_at: string | null;
+  completed_at: string | null;
+}
+
 type AdminAction = "retrain" | "research-missing" | "research-lane";
+
+function formatJobTime(value: string | null): string {
+  if (!value) return "Not started";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function formatJobPhase(value: string): string {
+  return value.replace(/_/g, " ");
+}
+
+function laneLabel(lane: { carrier: string | null; origin: string | null; dest: string | null }): string {
+  return `${lane.carrier ?? "unknown"} ${lane.origin ?? "??"}→${lane.dest ?? "??"}`;
+}
 
 export function AdminContent() {
   const [stats, setStats] = useState<AdminStats | null>(null);
@@ -109,6 +156,17 @@ export function AdminContent() {
     loadAll().finally(() => setLoading(false));
   }, [loadAll]);
 
+  const researchJob = model?.research?.job ?? null;
+  const researchRunning = researchJob?.state === "running";
+
+  useEffect(() => {
+    if (!researchRunning) return;
+    const id = window.setInterval(() => {
+      loadAll();
+    }, 2500);
+    return () => window.clearInterval(id);
+  }, [loadAll, researchRunning]);
+
   const runAction = useCallback(
     async (action: AdminAction, extra?: { carrierSlug?: string; originCountry?: string; destCountry?: string }) => {
       setBusy(true);
@@ -126,9 +184,14 @@ export function AdminContent() {
             : action === "research-missing"
               ? "Researching missing lanes"
               : "Researching lane";
+        if (res.ok) {
+          await loadAll();
+        }
         setActionMsg(
           res.ok
-            ? `${label} started (${body.status ?? "ok"})`
+            ? body.job?.message
+              ? `${label}: ${body.job.message}`
+              : `${label} started (${body.status ?? "ok"})`
             : `Failed: ${body.error ?? res.status}`
         );
       } catch {
@@ -137,7 +200,7 @@ export function AdminContent() {
         setBusy(false);
       }
     },
-    []
+    [loadAll]
   );
 
   if (loading) {
@@ -431,12 +494,132 @@ export function AdminContent() {
         </div>
 
         {model?.research ? (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-            <StatCard label="Agent" value={model.research.agent_available ? "Active" : "Off"} color={model.research.agent_available ? "green" : "yellow"} />
-            <StatCard label="Route Patterns" value={model.research.patterns.total} color="purple" sub={`${model.research.patterns.mined} mined · ${model.research.patterns.llm_researched} LLM`} />
-            <StatCard label="Missing Lanes" value={model.research.missing_lanes} color={model.research.missing_lanes > 0 ? "yellow" : "green"} sub="Active shipments without patterns" />
-            <StatCard label="LLM Model" value={model.research.model ?? "N/A"} color="cyan" />
-          </div>
+          <>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+              <StatCard label="Agent" value={model.research.agent_available ? "Active" : "Off"} color={model.research.agent_available ? "green" : "yellow"} />
+              <StatCard label="Route Patterns" value={model.research.patterns.total} color="purple" sub={`${model.research.patterns.mined} mined · ${model.research.patterns.llm_researched} LLM`} />
+              <StatCard label="Missing Lanes" value={model.research.missing_lanes} color={model.research.missing_lanes > 0 ? "yellow" : "green"} sub="Active shipments without patterns" />
+              <StatCard label="LLM Model" value={model.research.model ?? "N/A"} color="cyan" />
+            </div>
+            {model.research.job && (
+              <div className="mb-4 border-y border-cyber-border/30 py-3">
+                <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {model.research.job.state === "running" && (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin text-cyber-purple" />
+                      )}
+                      {model.research.job.state === "failed" && (
+                        <AlertTriangle className="h-3.5 w-3.5 text-cyber-red" />
+                      )}
+                      <p className="font-mono text-sm text-cyber-text">
+                        {model.research.job.state === "running"
+                          ? "Working"
+                          : model.research.job.state === "completed"
+                            ? "Last run complete"
+                            : model.research.job.state === "failed"
+                              ? "Last run failed"
+                              : "Idle"}
+                      </p>
+                      <span className="font-mono text-[10px] uppercase tracking-wide text-cyber-muted">
+                        {formatJobPhase(model.research.job.phase)}
+                      </span>
+                    </div>
+                    <p className="mt-1 break-words font-mono text-xs text-cyber-muted">
+                      {model.research.job.message}
+                    </p>
+                    {model.research.job.current_lane && (
+                      <p className="mt-1 font-mono text-xs text-cyber-purple">
+                        Current lane: {laneLabel(model.research.job.current_lane)}
+                      </p>
+                    )}
+                  </div>
+                  <div className="shrink-0 font-mono text-[11px] text-cyber-muted md:text-right">
+                    <p>Started {formatJobTime(model.research.job.started_at)}</p>
+                    <p>Updated {formatJobTime(model.research.job.updated_at)}</p>
+                  </div>
+                </div>
+
+                {model.research.job.total > 0 && (
+                  <div className="mt-3">
+                    <div className="mb-1 flex justify-between font-mono text-[11px] text-cyber-muted">
+                      <span>
+                        {model.research.job.current} / {model.research.job.total} lanes
+                      </span>
+                      <span>
+                        {Math.round(
+                          (model.research.job.current / model.research.job.total) * 100
+                        )}
+                        %
+                      </span>
+                    </div>
+                    <div className="h-1.5 bg-cyber-border/30">
+                      <div
+                        className="h-full bg-cyber-purple transition-all"
+                        style={{
+                          width: `${Math.min(
+                            100,
+                            Math.round(
+                              (model.research.job.current / model.research.job.total) * 100
+                            )
+                          )}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <div className="mt-3 grid grid-cols-2 gap-2 font-mono text-xs md:grid-cols-4">
+                  <div>
+                    <p className="text-cyber-muted">Candidates</p>
+                    <p className="text-cyber-text">{model.research.job.candidates}</p>
+                  </div>
+                  <div>
+                    <p className="text-cyber-muted">Created</p>
+                    <p className="text-cyber-green">{model.research.job.created}</p>
+                  </div>
+                  <div>
+                    <p className="text-cyber-muted">Skipped</p>
+                    <p className="text-cyber-yellow">{model.research.job.skipped}</p>
+                  </div>
+                  <div>
+                    <p className="text-cyber-muted">Failed</p>
+                    <p className="text-cyber-red">{model.research.job.failed}</p>
+                  </div>
+                </div>
+
+                {model.research.job.recent_results.length > 0 && (
+                  <div className="mt-3 space-y-1">
+                    {model.research.job.recent_results.map((result, index) => (
+                      <div
+                        key={`${result.carrier}-${result.origin}-${result.dest}-${index}`}
+                        className="flex flex-col gap-1 border-t border-cyber-border/20 pt-1 font-mono text-[11px] sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <span className="text-cyber-text">
+                          {laneLabel(result)}
+                        </span>
+                        <span
+                          className={
+                            result.error
+                              ? "text-cyber-red"
+                              : result.created
+                                ? "text-cyber-green"
+                                : "text-cyber-muted"
+                          }
+                        >
+                          {result.error
+                            ? result.error
+                            : result.created
+                              ? `created ${result.stops_count ?? "?"} stops`
+                              : result.message ?? "already covered"}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </>
         ) : (
           <p className="text-xs text-cyber-muted font-mono mb-4">
             Agent status unavailable.

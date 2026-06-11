@@ -298,7 +298,9 @@ export function TrackDetailContent({
       location: e.locationName || undefined,
       description: e.description || undefined,
       time: eventTimeLabel(e.eventTime),
+      sortTime: new Date(e.eventTime).getTime(),
       isLatest: i === 0,
+      predicted: false,
     })),
     ...futureStops.map((stop) => {
       const etaDate = new Date(stop.eta);
@@ -317,10 +319,19 @@ export function TrackDetailContent({
         time: !Number.isNaN(etaDate.getTime())
           ? formatRegionalDateHour(etaDate)
           : "Timing unknown",
+        sortTime: etaDate.getTime(),
+        isLatest: false,
         predicted: true,
       };
     }),
-  ];
+  ]
+    .sort((a, b) => {
+      const aTime = Number.isNaN(a.sortTime) ? -Infinity : a.sortTime;
+      const bTime = Number.isNaN(b.sortTime) ? -Infinity : b.sortTime;
+      if (aTime !== bTime) return bTime - aTime;
+      return Number(a.predicted ?? false) - Number(b.predicted ?? false);
+    })
+    .map(({ sortTime, ...event }) => event);
   const timelineTitle =
     futureStops.length > 0
       ? `Tracking Events (${data.events.length} + ${futureStops.length} forecast)`

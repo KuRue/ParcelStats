@@ -9,7 +9,7 @@ Can be used to:
 import json
 import logging
 import uuid
-from typing import Optional
+from typing import Callable, Optional
 from openai import OpenAI
 
 from database.connection import SessionLocal
@@ -200,13 +200,18 @@ class RouteResearchAgent:
 
         return {"enriched": enriched, "skipped": len(patterns) - enriched}
 
-    def fill_missing_lanes(self, db_session=None):
+    def fill_missing_lanes(self, db_session=None, progress_callback: Callable[[dict], None] | None = None):
         """Research lanes that have no route patterns yet.
 
         Finds carriers with active shipments that lack patterns, and
         researches the most common missing lanes.
         """
         if not self.available:
+            if progress_callback:
+                progress_callback({
+                    "phase": "unavailable",
+                    "message": "OpenAI is not configured; route research cannot run.",
+                })
             return {"researched": 0}
 
         from database.models import Shipment
@@ -255,11 +260,53 @@ class RouteResearchAgent:
             if close_session:
                 db.close()
 
+        if progress_callback:
+            progress_callback({
+                "phase": "lanes_identified",
+                "total": len(missing),
+                "candidates": len(missing),
+                "message": (
+                    f"Found {len(missing)} missing lane"
+                    f"{'' if len(missing) == 1 else 's'} to research."
+                ),
+            })
+
         researched = 0
-        for slug, oc, dc in missing:
+        for index, (slug, oc, dc) in enumerate(missing, start=1):
+            if progress_callback:
+                progress_callback({
+                    "phase": "researching_lane",
+                    "current": index,
+                    "total": len(missing),
+                    "lane": {
+                        "carrier": slug,
+                        "origin": oc,
+                        "dest": dc,
+                    },
+                    "message": f"Researching {slug} {oc}→{dc}.",
+                })
             result = self.research_and_store(slug, oc, dc)
             if result.get("created"):
                 researched += 1
+            if progress_callback:
+                progress_callback({
+                    "phase": "lane_complete",
+                    "current": index,
+                    "total": len(missing),
+                    "lane": {
+                        "carrier": slug,
+                        "origin": oc,
+                        "dest": dc,
+                    },
+                    "result": result,
+                    "message": (
+                        f"Stored {slug} {oc}→{dc}."
+                        if result.get("created")
+                        else result.get("error")
+                        or result.get("message")
+                        or f"Checked {slug} {oc}→{dc}."
+                    ),
+                })
 
         logger.info(f"Researched {researched} missing lanes")
         return {"researched": researched, "candidates": len(missing)}
