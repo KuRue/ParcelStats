@@ -57,6 +57,35 @@ interface ShipmentDetail {
   } | null;
 }
 
+interface FutureStop {
+  stopOrder: number;
+  locationName: string;
+  locationLat: number | null;
+  locationLng: number | null;
+  status: string;
+  frequencyPct: number;
+  eta: string;
+  medianDaysFromStart: number;
+  p10Days: number;
+  p90Days: number;
+}
+
+interface RoutePrediction {
+  status: string;
+  route?: {
+    carrierSlug: string;
+    originCountry: string;
+    destCountry: string;
+    label: string;
+    matchedStops: number;
+    totalPatternStops: number;
+    totalEvents: number;
+    score: number;
+    sampleCount: number;
+    futureStops: FutureStop[];
+  };
+}
+
 function isIssueStatus(status: string): boolean {
   const s = status.toLowerCase();
   return (
@@ -111,6 +140,8 @@ export function TrackDetailContent({
   const [copied, setCopied] = useState(false);
   const [pendingPrediction, setPendingPrediction] = useState(false);
   const fetchedPredictionRef = useRef(false);
+  const [routePrediction, setRoutePrediction] = useState<RoutePrediction | null>(null);
+  const [routeLoading, setRouteLoading] = useState(false);
 
   const handleDelete = useCallback(async () => {
     if (!window.confirm("Stop tracking this shipment? This cannot be undone.")) {
@@ -195,6 +226,23 @@ export function TrackDetailContent({
       .catch(() => {})
       .finally(() => setPendingPrediction(false));
   }, [data]);
+
+  // Fetch route prediction (future stops) after initial load
+  useEffect(() => {
+    if (!data || !data.shippedAt) return;
+    if (isDeliveredStatus(data.status) || isIssueStatus(data.status)) return;
+
+    setRouteLoading(true);
+    fetch(`/api/predictions/shipment-route/${shipmentId}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((result) => {
+        if (result?.status === "ok" && result.route) {
+          setRoutePrediction(result);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setRouteLoading(false));
+  }, [shipmentId, data?.shippedAt]);
 
   useEventStream({
     onUpdate: (event) => {
@@ -503,6 +551,40 @@ export function TrackDetailContent({
                     </span>
                   )}
                 </p>
+              </div>
+            </CyberCard>
+          )}
+
+          {routePrediction?.route && !delivered && (
+            <CyberCard terminal title="Predicted Route">
+              <div className="space-y-3">
+                <p className="text-[10px] font-mono text-cyber-muted/60">
+                  Based on {routePrediction.route.sampleCount} historical
+                  shipments · score {Math.round(routePrediction.route.score * 100)}%
+                </p>
+                <div className="relative pl-4 border-l border-cyber-border/40 space-y-3">
+                  {routePrediction.route.futureStops.map((stop, i) => {
+                    const etaDate = new Date(stop.eta);
+                    return (
+                      <div key={stop.stopOrder} className="relative">
+                        <div className="absolute -left-[17px] top-1 h-2.5 w-2.5 rounded-full border-2 border-cyber-cyan/60 bg-cyber-card" />
+                        <p className="text-xs font-mono text-cyber-text leading-tight">
+                          {stop.locationName}
+                        </p>
+                        <p className="text-[10px] font-mono text-cyber-muted/70 mt-0.5">
+                          {!Number.isNaN(etaDate.getTime())
+                            ? formatRegionalDateHour(etaDate)
+                            : "Timing unknown"}
+                          {stop.frequencyPct < 100 && (
+                            <span className="ml-1.5 text-cyber-muted/50">
+                              · {stop.frequencyPct}% common
+                            </span>
+                          )}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             </CyberCard>
           )}

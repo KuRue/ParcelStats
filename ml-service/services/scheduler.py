@@ -8,6 +8,7 @@ from database.connection import SessionLocal
 from database.models import Shipment, ShipmentEvent, Carrier, ScrapeJob
 from services.geocode import resolve as geocode_resolve
 from services.timeutil import utcnow
+from services.pattern_miner import mine_patterns
 
 logger = logging.getLogger("parcelstats.scheduler")
 
@@ -47,6 +48,7 @@ class PollScheduler:
         # location strings the gazetteer could not resolve; avoids
         # re-attempting them every backfill cycle
         self._ungeocodable: set[str] = set()
+        self._last_mining: Optional[datetime] = None
 
     async def start(self):
         if self.running:
@@ -86,6 +88,7 @@ class PollScheduler:
         try:
             self._sweep_orphaned_pending(db)
             self._geocode_backfill(db)
+            self._mine_patterns_if_due(db)
 
             active_shipments = (
                 db.query(Shipment)
@@ -263,6 +266,18 @@ class PollScheduler:
         if setting_name:
             return getattr(settings, setting_name, settings.poll_interval_others)
         return settings.poll_interval_others
+
+    def _mine_patterns_if_due(self, db):
+        """Run route pattern mining every 6 hours."""
+        now = utcnow()
+        if self._last_mining and (now - self._last_mining).total_seconds() < 21600:
+            return
+        self._last_mining = now
+        try:
+            # miner opens/closes its own session
+            mine_patterns()
+        except Exception as e:
+            logger.error(f"Route pattern mining failed: {e}")
 
     def get_status(self) -> dict:
         return {

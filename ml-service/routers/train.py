@@ -1,5 +1,6 @@
 from fastapi import APIRouter, BackgroundTasks
 from services.trainer import ModelTrainer
+from services.pattern_miner import mine_patterns
 
 router = APIRouter()
 trainer = ModelTrainer()
@@ -9,6 +10,12 @@ trainer = ModelTrainer()
 async def trigger_training(background_tasks: BackgroundTasks):
     background_tasks.add_task(_train)
     return {"status": "training_started"}
+
+
+@router.post("/mine-patterns")
+async def trigger_mining(background_tasks: BackgroundTasks):
+    background_tasks.add_task(_mine)
+    return {"status": "mining_started"}
 
 
 @router.get("/status")
@@ -40,4 +47,9 @@ async def training_status():
 
 def _train():
     result = trainer.train_eta_model()
+    return result
+
+
+def _mine():
+    result = mine_patterns()
     return result

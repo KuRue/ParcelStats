@@ -113,6 +113,20 @@ export const carrierRoutes = pgTable("carrier_routes", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const routePatterns = pgTable("route_patterns", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  carrierId: uuid("carrier_id").notNull().references(() => carriers.id),
+  originCountry: text("origin_country").notNull(),
+  destCountry: text("dest_country").notNull(),
+  serviceType: text("service_type"),
+  label: text("label"),
+  stops: jsonb("stops").notNull(),
+  sampleCount: integer("sample_count").notNull().default(1),
+  matchScore: decimal("match_score", { precision: 4, scale: 2 }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const scrapeJobs = pgTable("scrape_jobs", {
   id: uuid("id").primaryKey().defaultRandom(),
   shipmentId: uuid("shipment_id").references(() => shipments.id, { onDelete: "set null" }),

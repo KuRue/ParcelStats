@@ -99,6 +99,21 @@ class CarrierRoute(Base):
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
 
+class RoutePattern(Base):
+    __tablename__ = "route_patterns"
+    id = Column(String, primary_key=True)
+    carrier_id = Column(String, ForeignKey("carriers.id"), nullable=False)
+    origin_country = Column(String, nullable=False)
+    dest_country = Column(String, nullable=False)
+    service_type = Column(String)
+    label = Column(String)
+    stops = Column(JSON, nullable=False)
+    sample_count = Column(Integer, default=1)
+    match_score = Column(Numeric(4, 2))
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+
 class ScrapeJob(Base):
     __tablename__ = "scrape_jobs"
     id = Column(String, primary_key=True)

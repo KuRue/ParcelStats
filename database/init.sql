@@ -152,7 +152,22 @@ CREATE INDEX idx_shipment_events_shipment ON shipment_events(shipment_id, event_
 CREATE INDEX idx_shipment_events_time ON shipment_events(event_time DESC);
 CREATE INDEX idx_predictions_shipment ON predictions(shipment_id, created_at DESC);
 CREATE INDEX idx_scrape_jobs_status ON scrape_jobs(status, next_attempt_at);
+CREATE TABLE route_patterns (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    carrier_id UUID NOT NULL REFERENCES carriers(id),
+    origin_country TEXT NOT NULL,
+    dest_country TEXT NOT NULL,
+    service_type TEXT,
+    label TEXT,
+    stops JSONB NOT NULL,
+    sample_count INTEGER NOT NULL DEFAULT 1,
+    match_score DECIMAL(4,2),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE INDEX idx_carrier_routes_lookup ON carrier_routes(carrier_id, origin_region, dest_region);
+CREATE INDEX idx_route_patterns_lookup ON route_patterns(carrier_id, origin_country, dest_country);
 CREATE INDEX idx_accounts_user_id ON accounts(user_id);
 CREATE INDEX idx_sessions_user_id ON sessions(user_id);
 

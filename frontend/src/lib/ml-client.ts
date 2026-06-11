@@ -10,7 +10,7 @@ class MLServiceClient {
     this.baseUrl = process.env.ML_SERVICE_URL || "http://ml-service:8000";
   }
 
-  private async request(path: string, options?: RequestInit) {
+  async request(path: string, options?: RequestInit) {
     const res = await fetch(`${this.baseUrl}${path}`, {
       headers: {
         "Content-Type": "application/json",

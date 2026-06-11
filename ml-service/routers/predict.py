@@ -1,6 +1,10 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
+from database.connection import get_db
 from services.predictor import ETAPredictor
+from services.route_predictor import predict_route as predict_route_stops
+from database.models import Shipment
 
 router = APIRouter()
 
@@ -83,6 +87,22 @@ async def predict_route(req: RoutePredictionRequest):
             "carrier": req.carrier_slug,
             "origin": req.origin_region,
             "destination": req.dest_region,
-            "message": "Route prediction requires more historical data.",
+            "message": "Use /predict/route-for-shipment/{shipment_id} for per-shipment predictions.",
         },
     }
+
+
+@router.get("/route-for-shipment/{shipment_id}")
+async def route_for_shipment(shipment_id: str, db: Session = Depends(get_db)):
+    shipment = db.query(Shipment).filter(Shipment.id == shipment_id).first()
+    if not shipment:
+        return {"status": "error", "message": "Shipment not found"}
+
+    result = predict_route_stops(db, shipment)
+    if not result:
+        return {
+            "status": "no_pattern",
+            "message": "No route pattern found for this shipment's carrier and lane.",
+        }
+
+    return {"status": "ok", "route": result}
