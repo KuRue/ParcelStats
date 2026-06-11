@@ -9,6 +9,7 @@ from database.models import Shipment, ShipmentEvent, Carrier, ScrapeJob
 from services.geocode import resolve as geocode_resolve
 from services.timeutil import utcnow
 from services.pattern_miner import mine_patterns
+from services.agent.research import RouteResearchAgent
 
 logger = logging.getLogger("parcelstats.scheduler")
 
@@ -49,6 +50,7 @@ class PollScheduler:
         # re-attempting them every backfill cycle
         self._ungeocodable: set[str] = set()
         self._last_mining: Optional[datetime] = None
+        self._last_research: Optional[datetime] = None
 
     async def start(self):
         if self.running:
@@ -89,6 +91,7 @@ class PollScheduler:
             self._sweep_orphaned_pending(db)
             self._geocode_backfill(db)
             self._mine_patterns_if_due(db)
+            self._research_missing_if_due()
 
             active_shipments = (
                 db.query(Shipment)
@@ -274,10 +277,23 @@ class PollScheduler:
             return
         self._last_mining = now
         try:
-            # miner opens/closes its own session
             mine_patterns()
         except Exception as e:
             logger.error(f"Route pattern mining failed: {e}")
+
+    def _research_missing_if_due(self):
+        """Research lanes with no patterns via LLM, every 24 hours."""
+        now = utcnow()
+        if self._last_research and (now - self._last_research).total_seconds() < 86400:
+            return
+        self._last_research = now
+        agent = RouteResearchAgent()
+        if not agent.available:
+            return
+        try:
+            agent.fill_missing_lanes()
+        except Exception as e:
+            logger.error(f"Route research failed: {e}")
 
     def get_status(self) -> dict:
         return {
