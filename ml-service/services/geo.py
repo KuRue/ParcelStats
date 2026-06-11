@@ -47,6 +47,14 @@ def same_country(left: str | None, right: str | None) -> bool:
 
 
 def resolve_location(city: str | None, country: str | None) -> Coordinate | None:
+    # Gazetteer-backed lookup first (33k+ cities, offline)
+    from services.geocode import resolve
+
+    raw = ", ".join(p for p in [city, country] if p)
+    hit = resolve(raw, country_hint=country)
+    if hit:
+        return (hit.lat, hit.lng)
+
     country_key = normalize_country(country)
     city_key = normalize_place(city)
 

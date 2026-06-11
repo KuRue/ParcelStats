@@ -8,6 +8,7 @@ from typing import Optional
 import redis
 from services.queue import JobQueue
 from services.scraper import get_scraper
+from services.geocode import resolve as geocode_resolve
 from services.predictor import ETAPredictor
 from services.config import settings
 from database.connection import SessionLocal
@@ -209,7 +210,27 @@ class ScrapeWorker:
                 if result.estimated_delivery and not shipment.estimated_delivery:
                     shipment.estimated_delivery = result.estimated_delivery
 
+                # Fill missing endpoint coordinates from the offline gazetteer
+                if shipment.origin_name and shipment.origin_lat is None:
+                    hit = geocode_resolve(shipment.origin_name)
+                    if hit:
+                        shipment.origin_lat = hit.lat
+                        shipment.origin_lng = hit.lng
+                if shipment.dest_name and shipment.dest_lat is None:
+                    hit = geocode_resolve(shipment.dest_name)
+                    if hit:
+                        shipment.dest_lat = hit.lat
+                        shipment.dest_lng = hit.lng
+
                 for event in result.events:
+                    event_lat = event.location_lat
+                    event_lng = event.location_lng
+                    if event_lat is None and event.location_name:
+                        hit = geocode_resolve(event.location_name)
+                        if hit:
+                            event_lat = hit.lat
+                            event_lng = hit.lng
+
                     existing = None
                     if event.event_time:
                         existing = (
@@ -225,8 +246,9 @@ class ScrapeWorker:
                     if existing:
                         if event.location_name:
                             existing.location_name = event.location_name
-                        existing.location_lat = event.location_lat
-                        existing.location_lng = event.location_lng
+                        if event_lat is not None:
+                            existing.location_lat = event_lat
+                            existing.location_lng = event_lng
                         if event.description:
                             existing.description = event.description
                         if event.raw_data:
@@ -238,8 +260,8 @@ class ScrapeWorker:
                                 shipment_id=shipment_id,
                                 status=event.status,
                                 location_name=event.location_name,
-                                location_lat=event.location_lat,
-                                location_lng=event.location_lng,
+                                location_lat=event_lat,
+                                location_lng=event_lng,
                                 description=event.description,
                                 event_time=event.event_time or utcnow(),
                                 raw_data=event.raw_data,
@@ -285,6 +307,11 @@ class ScrapeWorker:
                 logger.info(f"Completed {carrier_slug}:{tracking_number}")
 
                 if result.status == "delivered":
+                    try:
+                        from services.calibration import update_lane_stats_for_shipment
+                        update_lane_stats_for_shipment(db, shipment)
+                    except Exception as e:
+                        logger.warning(f"Lane calibration update failed: {e}")
                     self._check_retrain()
 
             except Exception as e:

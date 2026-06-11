@@ -5,7 +5,8 @@ from typing import Optional
 from services.config import settings
 from services.queue import JobQueue
 from database.connection import SessionLocal
-from database.models import Shipment, Carrier, ScrapeJob
+from database.models import Shipment, ShipmentEvent, Carrier, ScrapeJob
+from services.geocode import resolve as geocode_resolve
 from services.timeutil import utcnow
 
 logger = logging.getLogger("parcelstats.scheduler")
@@ -43,6 +44,9 @@ class PollScheduler:
         # shipment_id -> last sweep time; prevents re-enqueueing an orphaned
         # shipment every cycle while its job is still waiting in Redis
         self._swept: dict[str, datetime] = {}
+        # location strings the gazetteer could not resolve; avoids
+        # re-attempting them every backfill cycle
+        self._ungeocodable: set[str] = set()
 
     async def start(self):
         if self.running:
@@ -81,6 +85,7 @@ class PollScheduler:
         db = SessionLocal()
         try:
             self._sweep_orphaned_pending(db)
+            self._geocode_backfill(db)
 
             active_shipments = (
                 db.query(Shipment)
@@ -189,6 +194,68 @@ class PollScheduler:
         if enqueued:
             self._jobs_enqueued += enqueued
             logger.info(f"Swept {enqueued} pending shipments with no scrape job")
+
+    def _geocode_backfill(self, db):
+        """Resolve coordinates for rows that predate the offline geocoder."""
+        resolved = 0
+
+        event_query = db.query(ShipmentEvent).filter(
+            ShipmentEvent.location_name.isnot(None),
+            ShipmentEvent.location_lat.is_(None),
+        )
+        if self._ungeocodable:
+            # Exclude known-unresolvable names so they don't permanently
+            # occupy the limited batch window
+            event_query = event_query.filter(
+                ShipmentEvent.location_name.notin_(self._ungeocodable)
+            )
+        events = event_query.limit(500).all()
+        for event in events:
+            name = event.location_name
+            if name in self._ungeocodable:
+                continue
+            hit = geocode_resolve(name)
+            if hit:
+                event.location_lat = hit.lat
+                event.location_lng = hit.lng
+                resolved += 1
+            else:
+                self._ungeocodable.add(name)
+
+        shipments = (
+            db.query(Shipment)
+            .filter(
+                (Shipment.origin_name.isnot(None) & Shipment.origin_lat.is_(None))
+                | (Shipment.dest_name.isnot(None) & Shipment.dest_lat.is_(None))
+            )
+            .limit(250)
+            .all()
+        )
+        for shipment in shipments:
+            for name_attr, lat_attr, lng_attr in (
+                ("origin_name", "origin_lat", "origin_lng"),
+                ("dest_name", "dest_lat", "dest_lng"),
+            ):
+                name = getattr(shipment, name_attr)
+                if not name or getattr(shipment, lat_attr) is not None:
+                    continue
+                if name in self._ungeocodable:
+                    continue
+                hit = geocode_resolve(name)
+                if hit:
+                    setattr(shipment, lat_attr, hit.lat)
+                    setattr(shipment, lng_attr, hit.lng)
+                    resolved += 1
+                else:
+                    self._ungeocodable.add(name)
+
+        if resolved:
+            db.commit()
+            logger.info(f"Geocode backfill resolved {resolved} locations")
+
+        # Bound the negative cache
+        if len(self._ungeocodable) > 5000:
+            self._ungeocodable.clear()
 
     def _get_interval(self, status: str) -> int:
         status_lower = status.lower().replace(" ", "_")

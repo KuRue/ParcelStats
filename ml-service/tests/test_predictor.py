@@ -41,7 +41,8 @@ def test_knowledge_fallback_without_loaded_model():
     result = p.predict("usps", "US", "US")
     assert result is not None
     assert result["model_version"] == "knowledge-v1"
-    assert result["prediction_source"] == "knowledge"
+    # "knowledge+lanes" when a DB with lane stats is reachable, else "knowledge"
+    assert result["prediction_source"].startswith("knowledge")
 
 
 def test_predicts_for_known_categories():

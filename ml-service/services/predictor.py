@@ -161,6 +161,22 @@ class ETAPredictor:
         result = predict_eta_knowledge(origin_country, dest_country, carrier_slug, service_type)
         if not result:
             return None
+
+        # Blend in observed transit times for this lane, if we have any
+        calibrated = False
+        try:
+            from services.calibration import get_lane_stats, blend_with_baseline
+            db = SessionLocal()
+            try:
+                lane = get_lane_stats(db, carrier_slug, origin_country, dest_country, service_type)
+            finally:
+                db.close()
+            if lane:
+                result = blend_with_baseline(result, lane)
+                calibrated = True
+        except Exception:
+            pass
+
         median_days = result["median_days"] * seasonal
         p10_days = result["p10_days"] * seasonal
         p90_days = result["p90_days"] * seasonal
@@ -176,7 +192,8 @@ class ETAPredictor:
             "median_days": round(median_days, 2),
             "p10_days": round(p10_days, 2),
             "p90_days": round(p90_days, 2),
-            "prediction_source": "knowledge",
+            "prediction_source": "knowledge+lanes" if calibrated else "knowledge",
+            "calibration_samples": result.get("calibration_samples", 0),
         }
 
     def _encode(self, feature: str, value: str) -> int:
@@ -211,9 +228,8 @@ class ETAPredictor:
             origin = (shipment.origin_name or "unknown").split(",")[-1].strip()
             dest = (shipment.dest_name or "unknown").split(",")[-1].strip()
 
-            if not self.is_ready:
-                return None
-
+            # predict() falls back to the knowledge engine when no trained
+            # model is loaded, so don't short-circuit here.
             result = self.predict(
                 carrier_slug=carrier.slug,
                 origin_region=origin,
@@ -244,7 +260,8 @@ class ETAPredictor:
             confidence_high=self._to_datetime(result.get("confidence_high")),
             confidence_pct=result.get("confidence_pct"),
             model_version=result["model_version"],
-            features=result.get("features"),
+            features=result.get("features")
+            or {"source": result.get("prediction_source", "unknown")},
         )
 
     def _is_delivered(self, shipment: Shipment) -> bool:

@@ -18,4 +18,4 @@ postgres-data/
 redis-data/
 ml-models/
 traefik-certs/
-data/
+/data/

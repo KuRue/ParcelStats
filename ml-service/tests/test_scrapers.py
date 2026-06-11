@@ -154,15 +154,16 @@ def test_speedpak_parse_waybill():
     assert shipment.service_type == "eBay"
     assert shipment.origin_name == "SHENZHEN, China"
     assert shipment.dest_name == "Largo, UnitedStates"
-    assert shipment.origin_lat == 22.5431
-    assert shipment.origin_lng == 114.0579
-    assert shipment.dest_lat == 27.9095
-    assert shipment.dest_lng == -82.7873
+    # Coordinates come from the bundled gazetteer; assert city-level proximity
+    assert abs(shipment.origin_lat - 22.54) < 0.1
+    assert abs(shipment.origin_lng - 114.06) < 0.1
+    assert abs(shipment.dest_lat - 27.91) < 0.1
+    assert abs(shipment.dest_lng - (-82.79)) < 0.1
     assert len(shipment.events) == 3
     assert shipment.events[0].status == "arrived_at_facility"
     assert shipment.events[0].location_name == "Chicago IL, US"
-    assert shipment.events[0].location_lat == 41.8781
-    assert shipment.events[0].location_lng == -87.6298
+    assert abs(shipment.events[0].location_lat - 41.85) < 0.1
+    assert abs(shipment.events[0].location_lng - (-87.65)) < 0.1
     assert shipment.events[1].status == "customs"
     assert shipment.events[1].location_name == "US"
     assert shipment.events[1].location_lat is None
