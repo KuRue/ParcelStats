@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { CyberCard } from "@/components/ui/cyber-card";
 import { TrackingTimeline, ConfidenceBar, StatusBadge } from "@/components/tracking/timeline";
@@ -109,6 +109,8 @@ export function TrackDetailContent({
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [pendingPrediction, setPendingPrediction] = useState(false);
+  const fetchedPredictionRef = useRef(false);
 
   const handleDelete = useCallback(async () => {
     if (!window.confirm("Stop tracking this shipment? This cannot be undone.")) {
@@ -160,6 +162,39 @@ export function TrackDetailContent({
     }
     load();
   }, [shipmentId]);
+
+  // On-demand prediction: if the DB had none, request one immediately
+  useEffect(() => {
+    if (!data || fetchedPredictionRef.current) return;
+    if (data.prediction || isDeliveredStatus(data.status)) return;
+    const region = (name: string | null) =>
+      name ? name.split(",").slice(-1)[0].trim() : undefined;
+
+    setPendingPrediction(true);
+    fetchedPredictionRef.current = true;
+
+    fetch("/api/predictions/eta", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        trackingNumber: data.trackingNumber,
+        carrierSlug: data.carrier.slug,
+        originRegion: region(data.originName),
+        destRegion: region(data.destName),
+        serviceType: data.serviceType ?? undefined,
+      }),
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((result) => {
+        if (result?.status === "ok" && result.prediction) {
+          setData((prev) =>
+            prev ? { ...prev, prediction: result.prediction } : prev
+          );
+        }
+      })
+      .catch(() => {})
+      .finally(() => setPendingPrediction(false));
+  }, [data]);
 
   useEventStream({
     onUpdate: (event) => {
