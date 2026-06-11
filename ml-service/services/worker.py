@@ -382,4 +382,11 @@ class ScrapeWorker:
             logger.warning(f"Auto-retrain check failed: {e}")
 
 
-worker = ScrapeWorker()
+worker: Optional["ScrapeWorker"] = None
+
+
+def get_worker() -> "ScrapeWorker":
+    global worker
+    if worker is None:
+        worker = ScrapeWorker()
+    return worker

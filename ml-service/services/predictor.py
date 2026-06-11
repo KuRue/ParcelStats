@@ -20,7 +20,10 @@ class ETAPredictor:
         self._load_model()
 
     def _load_model(self):
-        db = SessionLocal()
+        try:
+            db = SessionLocal()
+        except Exception:
+            return
         try:
             active = (
                 db.query(ModelVersion)

@@ -101,5 +101,5 @@ async def list_carrier_scrapers():
 
 @router.get("/queue")
 async def queue_status():
-    from services.worker import worker
-    return worker.get_status()
+    from services.worker import get_worker
+    return get_worker().get_status()

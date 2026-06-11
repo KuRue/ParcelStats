@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI
 from routers import predict, scrape, train
 from services.security import require_internal_api_key
-from services.worker import worker
+from services.worker import get_worker
 from services.scheduler import scheduler
 
 logging.basicConfig(
@@ -13,11 +13,12 @@ logging.basicConfig(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await worker.start()
+    w = get_worker()
+    await w.start()
     await scheduler.start()
     yield
     await scheduler.stop()
-    await worker.stop()
+    await w.stop()
 
 app = FastAPI(
     title="ParcelStats ML Service",
@@ -41,7 +42,7 @@ async def health():
     return {
         "status": "ok",
         "service": "parcelstats-ml",
-        "worker": worker.get_status(),
+        "worker": get_worker().get_status(),
         "scheduler": scheduler.get_status(),
         "queue": queue.get_stats(),
     }
