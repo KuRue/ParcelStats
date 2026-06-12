@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { splitRouteAtAntimeridian, type LatLngTuple } from "@/lib/geo";
+import { normalizeLongitude, unwrapRouteLongitudes, type LatLngTuple } from "@/lib/geo";
 import {
   formatRegionalDateHour,
   formatStatusLabel,
@@ -138,28 +138,22 @@ function eventTimestamp(event: MapEvent): number {
   return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
-function addRoutePoint(
-  routeCoords: LatLngTuple[],
-  lat: number,
-  lng: number
-) {
-  const last = routeCoords[routeCoords.length - 1];
-  if (last && Math.abs(last[0] - lat) < 0.0001 && Math.abs(last[1] - lng) < 0.0001) {
-    return;
-  }
-  routeCoords.push([lat, lng]);
+function dedupeConsecutivePoints(routeCoords: LatLngTuple[]): LatLngTuple[] {
+  return routeCoords.filter((point, index) => {
+    const previous = routeCoords[index - 1];
+    return !previous || Math.abs(previous[0] - point[0]) >= 0.0001 || Math.abs(previous[1] - point[1]) >= 0.0001;
+  });
 }
 
-function addPolylineSegments(
+function addPolyline(
   map: L.Map,
   routeCoords: LatLngTuple[],
   options: L.PolylineOptions
 ) {
-  splitRouteAtAntimeridian(routeCoords).forEach((segment) => {
-    if (segment.length > 1) {
-      L.polyline(segment, options).addTo(map);
-    }
-  });
+  const deduped = dedupeConsecutivePoints(routeCoords);
+  if (deduped.length > 1) {
+    L.polyline(deduped, options).addTo(map);
+  }
 }
 
 export function ShipmentRouteMap({
@@ -184,6 +178,7 @@ export function ShipmentRouteMap({
       zoom: 2,
       zoomControl: false,
       attributionControl: false,
+      maxBoundsViscosity: 1,
     });
 
     L.tileLayer(
@@ -221,10 +216,42 @@ export function ShipmentRouteMap({
     });
 
     const points: LatLngTuple[] = [];
-    const markers: L.Marker[] = [];
+    const geoEvents = events.filter(
+      (e) => e.locationLat != null && e.locationLng != null
+    );
+    const routeEvents = [...geoEvents].sort(
+      (a, b) => eventTimestamp(a) - eventTimestamp(b)
+    );
+    const actualRouteRaw: LatLngTuple[] = [];
+    const eventDisplayPoints = new Map<MapEvent, LatLngTuple>();
 
     if (originLat != null && originLng != null) {
-      const originMarker = L.marker([originLat, originLng], {
+      actualRouteRaw.push([originLat, originLng]);
+    }
+
+    routeEvents.forEach((event) => {
+      actualRouteRaw.push([event.locationLat!, event.locationLng!]);
+    });
+
+    const actualRouteDisplay = unwrapRouteLongitudes(actualRouteRaw);
+    let actualRouteIndex = 0;
+    const originPoint =
+      originLat != null && originLng != null
+        ? actualRouteDisplay[actualRouteIndex++] ?? [originLat, normalizeLongitude(originLng)]
+        : null;
+
+    routeEvents.forEach((event) => {
+      eventDisplayPoints.set(
+        event,
+        actualRouteDisplay[actualRouteIndex++] ?? [
+          event.locationLat!,
+          normalizeLongitude(event.locationLng!),
+        ]
+      );
+    });
+
+    if (originPoint) {
+      const originMarker = L.marker(originPoint, {
         icon: createEndpointIcon("O", "#bf00ff"),
       }).addTo(map);
       originMarker.bindPopup(
@@ -234,33 +261,22 @@ export function ShipmentRouteMap({
         </div>`,
         { className: "cyber-popup" }
       );
-      markers.push(originMarker);
-      points.push([originLat, originLng]);
+      points.push(originPoint);
     }
 
-    const geoEvents = events.filter(
-      (e) => e.locationLat != null && e.locationLng != null
-    );
-
     if (geoEvents.length > 0) {
-      const routeCoords: LatLngTuple[] = [];
-      const routeEvents = [...geoEvents].sort(
-        (a, b) => eventTimestamp(a) - eventTimestamp(b)
-      );
-
-      if (originLat != null && originLng != null) {
-        addRoutePoint(routeCoords, originLat, originLng);
-      }
-
       geoEvents.forEach((event, i) => {
         const lat = event.locationLat!;
-        const lng = event.locationLng!;
-        points.push([lat, lng]);
+        const point = eventDisplayPoints.get(event) ?? [
+          lat,
+          normalizeLongitude(event.locationLng!),
+        ];
+        points.push(point);
 
         const isLatest = i === 0;
         const color = getStatusColor(event.status);
 
-        const marker = L.marker([lat, lng], {
+        const marker = L.marker(point, {
           icon: isLatest ? createPulseIcon(color) : createIcon(color),
         }).addTo(map);
 
@@ -275,22 +291,17 @@ export function ShipmentRouteMap({
           </div>`,
           { className: "cyber-popup" }
         );
-        markers.push(marker);
       });
 
-      routeEvents.forEach((event) => {
-        addRoutePoint(routeCoords, event.locationLat!, event.locationLng!);
-      });
-
-      if (routeCoords.length > 1) {
-        addPolylineSegments(map, routeCoords, {
+      if (actualRouteDisplay.length > 1) {
+        addPolyline(map, actualRouteDisplay, {
           color: "#00f0ff",
           weight: 2,
           opacity: 0.7,
           smoothFactor: 1.5,
         });
 
-        addPolylineSegments(map, routeCoords, {
+        addPolyline(map, actualRouteDisplay, {
           color: "#00f0ff",
           weight: 6,
           opacity: 0.15,
@@ -299,6 +310,12 @@ export function ShipmentRouteMap({
       }
 
       const lastGeoEvent = geoEvents[0];
+      const latestPoint = eventDisplayPoints.get(lastGeoEvent) ?? [
+        lastGeoEvent.locationLat!,
+        normalizeLongitude(lastGeoEvent.locationLng!),
+      ];
+      let predictedDestPoint: LatLngTuple | null = null;
+
       if (destLat != null && destLng != null && status.toLowerCase() !== "delivered") {
         // Route the predicted path through known future stops when available
         const geoFutureStops = (futureStops ?? []).filter(
@@ -308,6 +325,7 @@ export function ShipmentRouteMap({
         const predictedLine: LatLngTuple[] = [
           [lastGeoEvent.locationLat!, lastGeoEvent.locationLng!],
         ];
+        const predictedStopRefs: FutureStop[] = [];
         for (const stop of geoFutureStops) {
           // Skip stops that coincide with the destination marker
           if (
@@ -317,10 +335,21 @@ export function ShipmentRouteMap({
             continue;
           }
           predictedLine.push([stop.locationLat!, stop.locationLng!]);
+          predictedStopRefs.push(stop);
+        }
+        predictedLine.push([destLat, destLng]);
 
+        const predictedDisplayLine = unwrapRouteLongitudes(predictedLine, latestPoint[1]);
+        predictedDestPoint = predictedDisplayLine[predictedDisplayLine.length - 1] ?? null;
+
+        predictedStopRefs.forEach((stop, index) => {
+          const point = predictedDisplayLine[index + 1] ?? [
+            stop.locationLat!,
+            normalizeLongitude(stop.locationLng!),
+          ];
           const etaDate = new Date(stop.eta);
           const etaText = formatRegionalDateHour(etaDate);
-          const ghost = L.marker([stop.locationLat!, stop.locationLng!], {
+          const ghost = L.marker(point, {
             icon: createGhostIcon("#bf00ff"),
           }).addTo(map);
           ghost.bindPopup(
@@ -331,12 +360,10 @@ export function ShipmentRouteMap({
             </div>`,
             { className: "cyber-popup" }
           );
-          markers.push(ghost);
-          points.push([stop.locationLat!, stop.locationLng!]);
-        }
-        predictedLine.push([destLat, destLng]);
+          points.push(point);
+        });
 
-        addPolylineSegments(map, predictedLine, {
+        addPolyline(map, predictedDisplayLine, {
           color: "#bf00ff",
           weight: 2,
           opacity: 0.5,
@@ -344,22 +371,44 @@ export function ShipmentRouteMap({
           smoothFactor: 1.5,
         });
 
-        addPolylineSegments(map, predictedLine, {
+        addPolyline(map, predictedDisplayLine, {
           color: "#bf00ff",
           weight: 6,
           opacity: 0.1,
           dashArray: "8, 8",
           smoothFactor: 1.5,
         });
-
-        points.push([destLat, destLng]);
       }
-    }
 
-    if (destLat != null && destLng != null) {
+      if (destLat != null && destLng != null) {
+        const destReferenceLng =
+          predictedDestPoint?.[1] ??
+          latestPoint[1] ??
+          actualRouteDisplay[actualRouteDisplay.length - 1]?.[1];
+        const destPoint = unwrapRouteLongitudes([[destLat, destLng]], destReferenceLng)[0];
+        const destColor =
+          isDeliveredStatus(status) ? "#39ff14" : "#00f0ff";
+        const destMarker = L.marker(destPoint, {
+          icon: createEndpointIcon("D", destColor),
+        }).addTo(map);
+        destMarker.bindPopup(
+          `<div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#e0e6f0;background:#1a1f2e;padding:8px;border:1px solid #2a3040;border-radius:6px;">
+            <div style="color:${destColor};font-weight:bold;margin-bottom:4px;">DESTINATION</div>
+            <div>${destName || "Unknown"}</div>
+          </div>`,
+          { className: "cyber-popup" }
+        );
+        points.push(destPoint);
+      }
+    } else if (destLat != null && destLng != null) {
+      const destReferenceLng = originPoint?.[1];
+      const destPoint =
+        destReferenceLng == null
+          ? [destLat, normalizeLongitude(destLng)] as LatLngTuple
+          : unwrapRouteLongitudes([[destLat, destLng]], destReferenceLng)[0];
       const destColor =
         isDeliveredStatus(status) ? "#39ff14" : "#00f0ff";
-      const destMarker = L.marker([destLat, destLng], {
+      const destMarker = L.marker(destPoint, {
         icon: createEndpointIcon("D", destColor),
       }).addTo(map);
       destMarker.bindPopup(
@@ -369,12 +418,15 @@ export function ShipmentRouteMap({
         </div>`,
         { className: "cyber-popup" }
       );
-      markers.push(destMarker);
+      points.push(destPoint);
     }
 
     if (points.length > 0) {
       const bounds = L.latLngBounds(points);
       map.fitBounds(bounds, { padding: [30, 30], maxZoom: 10 });
+      if (points.length > 1) {
+        map.setMaxBounds(bounds.pad(0.3));
+      }
     }
   }, [events, originLat, originLng, originName, destLat, destLng, destName, status, futureStops]);
 

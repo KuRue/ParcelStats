@@ -22,7 +22,6 @@ import Link from "next/link";
 import ShipmentRouteMap from "@/components/maps/shipment-map-dynamic";
 import {
   formatRegionalDateHour,
-  formatConfidence,
   isDeliveredStatus,
   isIssueStatus,
 } from "@/lib/utils";
@@ -282,9 +281,6 @@ export function TrackDetailContent({
     progress = Math.min(0.96, Math.max(0.04, ratio));
   }
 
-  const confidence = data.prediction
-    ? formatConfidence(data.prediction.confidencePct)
-    : null;
   const futureStops = routePrediction?.route?.futureStops ?? [];
   const timelineEvents = [
     ...data.events.map((e, i) => ({
@@ -443,14 +439,6 @@ export function TrackDetailContent({
               </>
             )}
           </div>
-          {confidence && !delivered && !issue && (
-            <div className="w-full md:w-56">
-              <ConfidenceBar
-                value={Math.round(data.prediction!.confidencePct)}
-                label={`Confidence · ${confidence.label}`}
-              />
-            </div>
-          )}
         </div>
 
         {/* Journey rail */}

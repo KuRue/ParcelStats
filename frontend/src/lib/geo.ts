@@ -10,6 +10,30 @@ export function normalizeLongitude(lng: number): number {
   return normalized === -180 && lng > 0 ? 180 : roundCoordinate(normalized);
 }
 
+export function longitudeNear(lng: number, referenceLng: number): number {
+  if (!Number.isFinite(lng) || !Number.isFinite(referenceLng)) return lng;
+  const normalized = normalizeLongitude(lng);
+  const worldOffset = Math.round((referenceLng - normalized) / 360) * 360;
+  return roundCoordinate(normalized + worldOffset);
+}
+
+export function unwrapRouteLongitudes(points: LatLngTuple[], anchorLng?: number): LatLngTuple[] {
+  if (points.length === 0) return [];
+
+  const firstLng =
+    anchorLng == null
+      ? normalizeLongitude(points[0][1])
+      : longitudeNear(points[0][1], anchorLng);
+  const unwrapped: LatLngTuple[] = [[points[0][0], firstLng]];
+
+  for (let i = 1; i < points.length; i += 1) {
+    const previousLng = unwrapped[i - 1][1];
+    unwrapped.push([points[i][0], longitudeNear(points[i][1], previousLng)]);
+  }
+
+  return unwrapped;
+}
+
 export function splitRouteAtAntimeridian(points: LatLngTuple[]): LatLngTuple[][] {
   if (points.length <= 1) return points.length ? [[points[0]]] : [];
 
