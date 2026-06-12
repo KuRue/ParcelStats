@@ -20,12 +20,23 @@ export interface GlobeShipment {
   originName: string | null;
   destName: string | null;
   lastLocation: string | null;
+  futureStops?: GlobeFutureStop[];
 }
 
 interface ParcelGlobeProps {
   shipments: GlobeShipment[];
   selectedId: string | null;
   onSelect: (id: string | null) => void;
+}
+
+interface GlobeFutureStop {
+  stopOrder: number;
+  locationName: string;
+  locationLat: number | null;
+  locationLng: number | null;
+  status: string;
+  frequencyPct: number;
+  eta: string;
 }
 
 const COLORS = {
@@ -68,7 +79,7 @@ interface Point {
   shipmentId: string;
   lat: number;
   lng: number;
-  kind: "current" | "origin" | "dest";
+  kind: "current" | "origin" | "dest" | "predicted";
   color: string;
 }
 
@@ -84,15 +95,27 @@ interface PlaceLabel {
   lat: number;
   lng: number;
   text: string;
-  kind: "current" | "origin" | "dest";
+  kind: "current" | "origin" | "dest" | "predicted";
   color: string;
 }
+
+type GlobeWithRenderer = GlobeMethods & {
+  renderer?: () => THREE.WebGLRenderer;
+};
 
 /** "Chicago IL, US" -> "Chicago IL"; "SHENZHEN, China" -> "SHENZHEN" */
 function placeName(location: string | null): string | null {
   if (!location) return null;
   const name = location.split(",")[0].trim();
   return name.length > 1 ? name : null;
+}
+
+function isNear(
+  a: [number, number],
+  b: [number, number],
+  threshold = 0.05
+): boolean {
+  return Math.abs(a[0] - b[0]) < threshold && Math.abs(a[1] - b[1]) < threshold;
 }
 
 /** Resolve a shipment's known journey into globe coordinates. */
@@ -131,6 +154,20 @@ function journeyOf(s: GlobeShipment) {
   return { origin, dest, trail, current };
 }
 
+function forecastStopsOf(s: GlobeShipment) {
+  return [...(s.futureStops ?? [])]
+    .sort((a, b) => (a.stopOrder ?? 0) - (b.stopOrder ?? 0))
+    .map((stop) => {
+      const lat = stop.locationLat;
+      const lng = stop.locationLng;
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+      return { stop, point: [lat as number, lng as number] as [number, number] };
+    })
+    .filter((stop): stop is { stop: GlobeFutureStop; point: [number, number] } =>
+      Boolean(stop)
+    );
+}
+
 export default function ParcelGlobe({ shipments, selectedId, onSelect }: ParcelGlobeProps) {
   const globeRef = useRef<GlobeMethods | undefined>(undefined);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -154,6 +191,12 @@ export default function ParcelGlobe({ shipments, selectedId, onSelect }: ParcelG
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
+
+  useEffect(() => {
+    const renderer = (globeRef.current as GlobeWithRenderer | undefined)?.renderer?.();
+    if (!renderer) return;
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  }, [size.width, size.height]);
 
   const globeMaterial = useMemo(
     () =>
@@ -197,16 +240,48 @@ export default function ParcelGlobe({ shipments, selectedId, onSelect }: ParcelG
       }
 
       if (current && dest && !delivered) {
-        const atDest =
-          Math.abs(current[0] - dest[0]) < 0.05 &&
-          Math.abs(current[1] - dest[1]) < 0.05;
-        if (!atDest) {
+        const predictedPath: [number, number][] = [current];
+        const predictedStops = forecastStopsOf(s);
+
+        predictedStops.forEach(({ stop, point }) => {
+          const previous = predictedPath[predictedPath.length - 1];
+          if (isNear(point, current) || isNear(point, dest) || isNear(point, previous)) {
+            return;
+          }
+
+          predictedPath.push(point);
+          points.push({
+            shipmentId: s.id,
+            lat: point[0],
+            lng: point[1],
+            kind: "predicted",
+            color: COLORS.predicted,
+          });
+
+          const stopLabel = placeName(stop.locationName);
+          if (stopLabel) {
+            addLabel({
+              shipmentId: s.id,
+              lat: point[0],
+              lng: point[1],
+              text: stopLabel,
+              kind: "predicted",
+              color: COLORS.predicted,
+            });
+          }
+        });
+
+        if (!isNear(predictedPath[predictedPath.length - 1], dest)) {
+          predictedPath.push(dest);
+        }
+
+        for (let i = 0; i < predictedPath.length - 1; i++) {
           arcs.push({
             shipmentId: s.id,
-            startLat: current[0],
-            startLng: current[1],
-            endLat: dest[0],
-            endLng: dest[1],
+            startLat: predictedPath[i][0],
+            startLng: predictedPath[i][1],
+            endLat: predictedPath[i + 1][0],
+            endLng: predictedPath[i + 1][1],
             kind: "predicted",
           });
         }
@@ -338,10 +413,11 @@ export default function ParcelGlobe({ shipments, selectedId, onSelect }: ParcelG
           atmosphereColor="#00f0ff"
           atmosphereAltitude={0.16}
           polygonsData={land}
-          polygonCapColor={() => "rgba(0,180,200,0.13)"}
+          polygonCapColor={() => "rgba(0,180,200,0.14)"}
           polygonSideColor={() => "rgba(0,0,0,0)"}
-          polygonStrokeColor={() => "rgba(0,240,255,0.30)"}
-          polygonAltitude={0.004}
+          polygonStrokeColor={() => "rgba(0,240,255,0.18)"}
+          polygonAltitude={0.003}
+          polygonCapCurvatureResolution={1.25}
           polygonsTransitionDuration={0}
           arcsData={arcs}
           arcColor={arcColor}
@@ -364,13 +440,20 @@ export default function ParcelGlobe({ shipments, selectedId, onSelect }: ParcelG
             const alpha =
               selectedId && pt.shipmentId !== selectedId
                 ? 0.15
+                : pt.kind === "predicted"
+                ? 0.65
                 : pt.kind === "dest"
                 ? 0.55
                 : 0.95;
             return withAlpha(pt.color, alpha);
           }}
           pointAltitude={0.005}
-          pointRadius={(p: object) => ((p as Point).kind === "current" ? 0.45 : 0.28)}
+          pointRadius={(p: object) => {
+            const point = p as Point;
+            if (point.kind === "current") return 0.45;
+            if (point.kind === "predicted") return 0.24;
+            return 0.28;
+          }}
           onPointClick={(p: object) => onSelect((p as Point).shipmentId)}
           ringsData={rings}
           ringLat={(r: object) => (r as Ring).lat}
@@ -390,11 +473,13 @@ export default function ParcelGlobe({ shipments, selectedId, onSelect }: ParcelG
           labelSize={(l: object) => {
             const label = l as PlaceLabel;
             if (selectedId && label.shipmentId === selectedId) return 1.05;
+            if (label.kind === "predicted") return 0.72;
             return label.kind === "current" ? 0.85 : 0.7;
           }}
           labelColor={(l: object) => {
             const label = l as PlaceLabel;
-            const alpha = label.kind === "current" ? 0.9 : 0.65;
+            const alpha =
+              label.kind === "current" ? 0.9 : label.kind === "predicted" ? 0.72 : 0.65;
             return withAlpha(label.color, alpha);
           }}
           labelDotRadius={0.18}
@@ -403,7 +488,7 @@ export default function ParcelGlobe({ shipments, selectedId, onSelect }: ParcelG
           labelsTransitionDuration={400}
           onLabelClick={(l: object) => onSelect((l as PlaceLabel).shipmentId)}
           onGlobeClick={() => onSelect(null)}
-          rendererConfig={{ antialias: true, alpha: true }}
+          rendererConfig={{ antialias: true, alpha: true, powerPreference: "high-performance" }}
         />
       )}
     </div>

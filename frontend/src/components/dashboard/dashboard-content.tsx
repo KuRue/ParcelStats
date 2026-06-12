@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { StatusBadge } from "@/components/tracking/timeline";
 import {
@@ -48,6 +48,23 @@ interface Tracking {
   path: [number, number][];
 }
 
+interface FutureStop {
+  stopOrder: number;
+  locationName: string;
+  locationLat: number | null;
+  locationLng: number | null;
+  status: string;
+  frequencyPct: number;
+  eta: string;
+}
+
+interface RoutePredictionResult {
+  status?: string;
+  route?: {
+    futureStops?: FutureStop[];
+  };
+}
+
 interface BulkImportResult {
   status: string;
   received: number;
@@ -61,6 +78,8 @@ interface BulkImportResult {
   alreadyInSystem: number;
   maxImport: number;
 }
+
+const MAX_GLOBE_ROUTE_FORECASTS = 60;
 
 function statusRank(status: string): number {
   if (isDeliveredStatus(status)) return 3;
@@ -156,6 +175,9 @@ export function DashboardContent({ userId }: { userId: string }) {
   const [filter, setFilter] = useState("all");
   const [selectedShipment, setSelectedShipment] = useState<string | null>(null);
   const [hasWebgl, setHasWebgl] = useState(true);
+  const [routeForecasts, setRouteForecasts] = useState<Record<string, FutureStop[]>>({});
+  const routeForecastsRef = useRef<Record<string, FutureStop[]>>({});
+  const routeForecastKeysRef = useRef<Record<string, string>>({});
 
   useEffect(() => {
     setHasWebgl(webglAvailable());
@@ -197,6 +219,97 @@ export function DashboardContent({ userId }: { userId: string }) {
       setCarriers(await res.json());
     }
   }
+
+  useEffect(() => {
+    const trackedIds = new Set(trackings.map((tracking) => tracking.id));
+    const prunedForecasts = Object.fromEntries(
+      Object.entries(routeForecastsRef.current).filter(([id]) => trackedIds.has(id))
+    ) as Record<string, FutureStop[]>;
+    const prunedKeys = Object.fromEntries(
+      Object.entries(routeForecastKeysRef.current).filter(([id]) => trackedIds.has(id))
+    ) as Record<string, string>;
+
+    if (Object.keys(prunedForecasts).length !== Object.keys(routeForecastsRef.current).length) {
+      routeForecastsRef.current = prunedForecasts;
+      routeForecastKeysRef.current = prunedKeys;
+      setRouteForecasts(prunedForecasts);
+    }
+
+    const candidates = trackings
+      .filter(
+        (tracking) =>
+          !isDeliveredStatus(tracking.status) &&
+          !isIssueStatus(tracking.status) &&
+          tracking.lastLat != null &&
+          tracking.lastLng != null &&
+          tracking.destLat != null &&
+          tracking.destLng != null
+      )
+      .sort((a, b) => updatedAtTime(b) - updatedAtTime(a))
+      .slice(0, MAX_GLOBE_ROUTE_FORECASTS)
+      .map((tracking) => ({
+        tracking,
+        key: [
+          tracking.updatedAt,
+          tracking.status,
+          tracking.lastLat,
+          tracking.lastLng,
+          tracking.destLat,
+          tracking.destLng,
+        ].join(":"),
+      }))
+      .filter(({ tracking, key }) => routeForecastKeysRef.current[tracking.id] !== key);
+
+    if (candidates.length === 0) return;
+
+    let cancelled = false;
+
+    Promise.allSettled(
+      candidates.map(async ({ tracking, key }) => {
+        const res = await fetch(`/api/predictions/shipment-route/${tracking.id}`);
+        if (!res.ok) {
+          return { id: tracking.id, key, stops: [] };
+        }
+
+        const result = (await res.json().catch(() => null)) as RoutePredictionResult | null;
+        const futureStops =
+          result?.status === "ok" && Array.isArray(result.route?.futureStops)
+            ? result.route.futureStops.filter(
+                (stop) => stop.locationLat != null && stop.locationLng != null
+              )
+            : [];
+
+        return { id: tracking.id, key, stops: futureStops };
+      })
+    ).then((results) => {
+      if (cancelled) return;
+
+      const forecastUpdates: Record<string, FutureStop[]> = {};
+      const keyUpdates: Record<string, string> = {};
+
+      results.forEach((result) => {
+        if (result.status !== "fulfilled") return;
+        forecastUpdates[result.value.id] = result.value.stops;
+        keyUpdates[result.value.id] = result.value.key;
+      });
+
+      if (Object.keys(keyUpdates).length === 0) return;
+
+      routeForecastsRef.current = {
+        ...routeForecastsRef.current,
+        ...forecastUpdates,
+      };
+      routeForecastKeysRef.current = {
+        ...routeForecastKeysRef.current,
+        ...keyUpdates,
+      };
+      setRouteForecasts(routeForecastsRef.current);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [trackings]);
 
   async function handleAddTracking(e: React.FormEvent) {
     e.preventDefault();
@@ -314,6 +427,7 @@ export function DashboardContent({ userId }: { userId: string }) {
     originName: t.originName,
     destName: t.destName,
     lastLocation: t.lastLocation,
+    futureStops: routeForecasts[t.id] ?? [],
   }));
 
   return (
