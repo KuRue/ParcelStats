@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 const LEGACY_FALLBACK_MODELS = ["fallback_route_stats", "carrier_estimate", "baseline_eta"];
 
 const actionSchema = z.object({
-  action: z.enum(["retrain", "research-missing", "research-lane"]),
+  action: z.enum(["retrain", "research-missing", "research-active", "research-lane"]),
   carrierSlug: z.string().optional(),
   originCountry: z.string().optional(),
   destCountry: z.string().optional(),
@@ -66,6 +66,8 @@ export async function POST(request: Request) {
       result = await mlClient.triggerRetrain();
     } else if (action === "research-missing") {
       result = await mlClient.request("/train/research-missing", { method: "POST" });
+    } else if (action === "research-active") {
+      result = await mlClient.request("/train/research-active", { method: "POST" });
     } else if (action === "research-lane") {
       result = await mlClient.request("/train/research-lane", {
         method: "POST",

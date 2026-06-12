@@ -111,7 +111,7 @@ interface ResearchJob {
   completed_at: string | null;
 }
 
-type AdminAction = "retrain" | "research-missing" | "research-lane";
+type AdminAction = "retrain" | "research-missing" | "research-active" | "research-lane";
 
 function formatJobTime(value: string | null): string {
   if (!value) return "Not started";
@@ -183,7 +183,9 @@ export function AdminContent() {
             ? "Retraining"
             : action === "research-missing"
               ? "Researching missing lanes"
-              : "Researching lane";
+              : action === "research-active"
+                ? "Reanalyzing active shipments"
+                : "Researching lane";
         if (res.ok) {
           await loadAll();
         }
@@ -633,11 +635,19 @@ export function AdminContent() {
         <div className="flex flex-wrap gap-2 mb-4">
           <button
             onClick={() => runAction("research-missing")}
-            disabled={busy}
+            disabled={busy || researchRunning}
             className="cyber-btn text-xs disabled:opacity-50"
           >
             <Search className="w-3 h-3 mr-1 inline" />
             Research Missing
+          </button>
+          <button
+            onClick={() => runAction("research-active")}
+            disabled={busy || researchRunning}
+            className="cyber-btn text-xs disabled:opacity-50"
+          >
+            <RefreshCw className="w-3 h-3 mr-1 inline" />
+            Reanalyze Active
           </button>
         </div>
 
@@ -674,7 +684,7 @@ export function AdminContent() {
                   });
                 }
               }}
-              disabled={busy || !laneCarrier || !laneOrigin || !laneDest}
+              disabled={busy || researchRunning || !laneCarrier || !laneOrigin || !laneDest}
               className="cyber-btn text-xs disabled:opacity-50"
             >
               Research Lane

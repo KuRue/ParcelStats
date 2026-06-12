@@ -105,13 +105,7 @@ function relative(value: string | Date): string {
 function eventTimeLabel(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  const abs = date.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-  return `${abs} · ${relative(date)}`;
+  return formatRegionalDateHour(date);
 }
 
 export function TrackDetailContent({
@@ -591,7 +585,7 @@ export function TrackDetailContent({
                 {
                   label: "Shipped",
                   value: shippedDate
-                    ? `${shippedDate.toLocaleDateString()} · ${relative(shippedDate)}`
+                    ? `${formatRegionalDateHour(shippedDate)} · ${relative(shippedDate)}`
                     : null,
                 },
                 {

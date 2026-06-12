@@ -310,3 +310,107 @@ class RouteResearchAgent:
 
         logger.info(f"Researched {researched} missing lanes")
         return {"researched": researched, "candidates": len(missing)}
+
+    def reanalyze_active_lanes(
+        self,
+        db_session=None,
+        progress_callback: Callable[[dict], None] | None = None,
+        limit: int = 20,
+    ):
+        """Research active shipment lanes, even when route patterns already exist."""
+        if not self.available:
+            if progress_callback:
+                progress_callback({
+                    "phase": "unavailable",
+                    "message": "OpenAI is not configured; active lane reanalysis cannot run.",
+                })
+            return {"researched": 0, "candidates": 0}
+
+        from database.models import Shipment
+        from services.knowledge import country_from_region
+
+        close_session = db_session is None
+        db = db_session or SessionLocal()
+        try:
+            carrier_slugs = {c.id: c.slug for c in db.query(Carrier).all()}
+            active = (
+                db.query(Shipment)
+                .filter(
+                    Shipment.delivered_at.is_(None),
+                    Shipment.origin_name.isnot(None),
+                    Shipment.dest_name.isnot(None),
+                )
+                .order_by(Shipment.updated_at.desc())
+                .all()
+            )
+
+            lanes: list[tuple[str, str, str]] = []
+            seen = set()
+            for s in active:
+                oc = country_from_region(s.origin_name or "")
+                dc = country_from_region(s.dest_name or "")
+                if oc == "??" or dc == "??":
+                    continue
+                key = (s.carrier_id, oc, dc)
+                if key in seen:
+                    continue
+                seen.add(key)
+                slug = carrier_slugs.get(s.carrier_id)
+                if slug:
+                    lanes.append((slug, oc, dc))
+                if len(lanes) >= limit:
+                    break
+        finally:
+            if close_session:
+                db.close()
+
+        if progress_callback:
+            progress_callback({
+                "phase": "lanes_identified",
+                "total": len(lanes),
+                "candidates": len(lanes),
+                "message": (
+                    f"Found {len(lanes)} active lane"
+                    f"{'' if len(lanes) == 1 else 's'} to reanalyze."
+                ),
+            })
+
+        researched = 0
+        for index, (slug, oc, dc) in enumerate(lanes, start=1):
+            if progress_callback:
+                progress_callback({
+                    "phase": "researching_lane",
+                    "current": index,
+                    "total": len(lanes),
+                    "lane": {
+                        "carrier": slug,
+                        "origin": oc,
+                        "dest": dc,
+                    },
+                    "message": f"Reanalyzing {slug} {oc}→{dc}.",
+                })
+            result = self.research_and_store(slug, oc, dc)
+            if result.get("created"):
+                researched += 1
+            if progress_callback:
+                progress_callback({
+                    "phase": "lane_complete",
+                    "current": index,
+                    "total": len(lanes),
+                    "lane": {
+                        "carrier": slug,
+                        "origin": oc,
+                        "dest": dc,
+                    },
+                    "result": result,
+                    "message": (
+                        f"Stored {slug} {oc}→{dc}."
+                        if result.get("created")
+                        else result.get("error")
+                        or result.get("message")
+                        or f"Checked {slug} {oc}→{dc}."
+                    ),
+                })
+
+        logger.info(f"Reanalyzed {len(lanes)} active lanes; stored {researched} new patterns")
+        return {"researched": researched, "candidates": len(lanes)}

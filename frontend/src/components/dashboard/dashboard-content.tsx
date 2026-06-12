@@ -125,10 +125,7 @@ function ParcelRow({
       </div>
       {tracking.estimatedDelivery && !isDeliveredStatus(tracking.status) && (
         <span className="shrink-0 font-mono text-[10px] text-cyber-cyan">
-          {new Date(tracking.estimatedDelivery).toLocaleDateString(undefined, {
-            month: "short",
-            day: "numeric",
-          })}
+          {formatRegionalDateHour(tracking.estimatedDelivery)}
         </span>
       )}
       <Link

@@ -108,6 +108,22 @@ async def trigger_research_missing(background_tasks: BackgroundTasks):
     return {"status": "research_missing_started", "job": _research_job_snapshot()}
 
 
+@router.post("/research-active")
+async def trigger_research_active(background_tasks: BackgroundTasks):
+    # Many lanes x LLM latency: run in the background, poll /research-status
+    agent = RouteResearchAgent()
+    if not agent.available:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="OpenAI not configured. Set OPENAI_BASE_URL and OPENAI_API_KEY."
+        )
+    if _research_job_running():
+        return {"status": "research_already_running", "job": _research_job_snapshot()}
+    _start_research_job("research_active", "Scanning active shipment lanes for agent reanalysis.")
+    background_tasks.add_task(_reanalyze_active_lanes_background)
+    return {"status": "research_active_started", "job": _research_job_snapshot()}
+
+
 @router.get("/research-status")
 async def research_status():
     agent = RouteResearchAgent()
@@ -312,4 +328,21 @@ def _fill_missing_lanes_background():
         )
     except Exception as e:
         _finish_research_job("failed", f"Route research failed: {e}")
+        raise
+
+
+def _reanalyze_active_lanes_background():
+    agent = RouteResearchAgent()
+    try:
+        result = agent.reanalyze_active_lanes(progress_callback=_update_research_job)
+        researched = result.get("researched", 0)
+        candidates = result.get("candidates", 0)
+        _finish_research_job(
+            "completed",
+            f"Active lane reanalysis finished: {researched} new pattern"
+            f"{'' if researched == 1 else 's'} from {candidates} active lane"
+            f"{'' if candidates == 1 else 's'}.",
+        )
+    except Exception as e:
+        _finish_research_job("failed", f"Active lane reanalysis failed: {e}")
         raise

@@ -3,7 +3,14 @@
 import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { formatStatusLabel, isDeliveredStatus, isIssueStatus, normalizedStatus } from "@/lib/utils";
+import { splitRouteAtAntimeridian, type LatLngTuple } from "@/lib/geo";
+import {
+  formatRegionalDateHour,
+  formatStatusLabel,
+  isDeliveredStatus,
+  isIssueStatus,
+  normalizedStatus,
+} from "@/lib/utils";
 
 interface MapEvent {
   status: string;
@@ -132,15 +139,27 @@ function eventTimestamp(event: MapEvent): number {
 }
 
 function addRoutePoint(
-  routeCoords: L.LatLngExpression[],
+  routeCoords: LatLngTuple[],
   lat: number,
   lng: number
 ) {
-  const last = routeCoords[routeCoords.length - 1] as [number, number] | undefined;
+  const last = routeCoords[routeCoords.length - 1];
   if (last && Math.abs(last[0] - lat) < 0.0001 && Math.abs(last[1] - lng) < 0.0001) {
     return;
   }
   routeCoords.push([lat, lng]);
+}
+
+function addPolylineSegments(
+  map: L.Map,
+  routeCoords: LatLngTuple[],
+  options: L.PolylineOptions
+) {
+  splitRouteAtAntimeridian(routeCoords).forEach((segment) => {
+    if (segment.length > 1) {
+      L.polyline(segment, options).addTo(map);
+    }
+  });
 }
 
 export function ShipmentRouteMap({
@@ -201,7 +220,7 @@ export function ShipmentRouteMap({
       map.removeLayer(layer);
     });
 
-    const points: L.LatLngExpression[] = [];
+    const points: LatLngTuple[] = [];
     const markers: L.Marker[] = [];
 
     if (originLat != null && originLng != null) {
@@ -224,7 +243,7 @@ export function ShipmentRouteMap({
     );
 
     if (geoEvents.length > 0) {
-      const routeCoords: L.LatLngExpression[] = [];
+      const routeCoords: LatLngTuple[] = [];
       const routeEvents = [...geoEvents].sort(
         (a, b) => eventTimestamp(a) - eventTimestamp(b)
       );
@@ -245,9 +264,7 @@ export function ShipmentRouteMap({
           icon: isLatest ? createPulseIcon(color) : createIcon(color),
         }).addTo(map);
 
-        const time = event.eventTime
-          ? new Date(event.eventTime).toLocaleString()
-          : "";
+        const time = formatRegionalDateHour(event.eventTime);
 
         marker.bindPopup(
           `<div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#e0e6f0;background:#1a1f2e;padding:10px;border:1px solid #2a3040;border-radius:6px;min-width:180px;">
@@ -266,19 +283,19 @@ export function ShipmentRouteMap({
       });
 
       if (routeCoords.length > 1) {
-        L.polyline(routeCoords, {
+        addPolylineSegments(map, routeCoords, {
           color: "#00f0ff",
           weight: 2,
           opacity: 0.7,
           smoothFactor: 1.5,
-        }).addTo(map);
+        });
 
-        L.polyline(routeCoords, {
+        addPolylineSegments(map, routeCoords, {
           color: "#00f0ff",
           weight: 6,
           opacity: 0.15,
           smoothFactor: 1.5,
-        }).addTo(map);
+        });
       }
 
       const lastGeoEvent = geoEvents[0];
@@ -288,7 +305,7 @@ export function ShipmentRouteMap({
           (s) => s.locationLat != null && s.locationLng != null
         );
 
-        const predictedLine: L.LatLngExpression[] = [
+        const predictedLine: LatLngTuple[] = [
           [lastGeoEvent.locationLat!, lastGeoEvent.locationLng!],
         ];
         for (const stop of geoFutureStops) {
@@ -302,12 +319,7 @@ export function ShipmentRouteMap({
           predictedLine.push([stop.locationLat!, stop.locationLng!]);
 
           const etaDate = new Date(stop.eta);
-          const etaText = Number.isFinite(etaDate.getTime())
-            ? etaDate.toLocaleDateString(undefined, {
-                month: "short",
-                day: "numeric",
-              })
-            : "";
+          const etaText = formatRegionalDateHour(etaDate);
           const ghost = L.marker([stop.locationLat!, stop.locationLng!], {
             icon: createGhostIcon("#bf00ff"),
           }).addTo(map);
@@ -324,21 +336,21 @@ export function ShipmentRouteMap({
         }
         predictedLine.push([destLat, destLng]);
 
-        L.polyline(predictedLine, {
+        addPolylineSegments(map, predictedLine, {
           color: "#bf00ff",
           weight: 2,
           opacity: 0.5,
           dashArray: "8, 8",
           smoothFactor: 1.5,
-        }).addTo(map);
+        });
 
-        L.polyline(predictedLine, {
+        addPolylineSegments(map, predictedLine, {
           color: "#bf00ff",
           weight: 6,
           opacity: 0.1,
           dashArray: "8, 8",
           smoothFactor: 1.5,
-        }).addTo(map);
+        });
 
         points.push([destLat, destLng]);
       }

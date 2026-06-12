@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { splitRouteAtAntimeridian, type LatLngTuple } from "@/lib/geo";
 import {
   formatRegionalDateHour,
   formatStatusLabel,
@@ -77,6 +78,18 @@ function createEndpointDot(label: string, color: string) {
   });
 }
 
+function addPolylineSegments(
+  layer: L.LayerGroup,
+  routeCoords: LatLngTuple[],
+  options: L.PolylineOptions
+) {
+  splitRouteAtAntimeridian(routeCoords).forEach((segment) => {
+    if (segment.length > 1) {
+      L.polyline(segment, options).addTo(layer);
+    }
+  });
+}
+
 export function GlobalMap({ shipments, onSelect, selectedId }: GlobalMapProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
@@ -122,7 +135,7 @@ export function GlobalMap({ shipments, onSelect, selectedId }: GlobalMapProps) {
 
     if (shipments.length === 0) return;
 
-    const allPoints: L.LatLngExpression[] = [];
+    const allPoints: LatLngTuple[] = [];
 
     shipments.forEach((s) => {
       const color = getStatusColor(s.status);
@@ -148,7 +161,7 @@ export function GlobalMap({ shipments, onSelect, selectedId }: GlobalMapProps) {
         allPoints.push([parseFloat(s.destLat!), parseFloat(s.destLng!)]);
       }
 
-      const routePoints: L.LatLngExpression[] = [];
+      const routePoints: LatLngTuple[] = [];
       if (hasOrigin) routePoints.push([parseFloat(s.originLat!), parseFloat(s.originLng!)]);
 
       if (hasLast) {
@@ -187,24 +200,24 @@ export function GlobalMap({ shipments, onSelect, selectedId }: GlobalMapProps) {
       if (hasDest) routePoints.push([parseFloat(s.destLat!), parseFloat(s.destLng!)]);
 
       if (routePoints.length > 1) {
-        L.polyline(routePoints, {
+        addPolylineSegments(layer, routePoints, {
           color: color,
           weight: isSelected ? 2.5 : 1.5,
           opacity: isSelected ? 0.8 : 0.4,
           smoothFactor: 1.5,
-        }).addTo(layer);
+        });
 
         if (isActive && hasLast && hasDest) {
-          const predictedLine: L.LatLngExpression[] = [
+          const predictedLine: LatLngTuple[] = [
             [parseFloat(s.lastLat!), parseFloat(s.lastLng!)],
             [parseFloat(s.destLat!), parseFloat(s.destLng!)],
           ];
-          L.polyline(predictedLine, {
+          addPolylineSegments(layer, predictedLine, {
             color: "#bf00ff",
             weight: isSelected ? 1.5 : 1,
             opacity: isSelected ? 0.5 : 0.2,
             dashArray: "6, 6",
-          }).addTo(layer);
+          });
         }
       }
     });
