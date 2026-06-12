@@ -408,28 +408,38 @@ export function TrackDetailContent({
         </div>
       </div>
 
-      {/* UPS browser fetch banner */}
+      {/* UPS embedded tracking */}
       {isUPSClientFetch && (
         <CyberCard glow="purple" className="mb-6">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="font-display text-sm font-bold text-cyber-purple mb-1">
-                Browser Fetch Required
-              </p>
-              <p className="font-mono text-xs text-cyber-muted">
-                UPS tracking data is being fetched from your browser. If data
-                does not appear shortly, try the link below.
-              </p>
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-display text-sm font-bold text-cyber-purple mb-1">
+                  UPS Live Tracking
+                </p>
+                <p className="font-mono text-xs text-cyber-muted">
+                  Embedded from UPS.com — your tracking data loads directly in your browser.
+                </p>
+              </div>
+              <a
+                href={`https://www.ups.com/track?trackNums=${encodeURIComponent(data.trackingNumber)}&loc=en_US`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="cyber-btn text-xs shrink-0"
+              >
+                <ExternalLink className="w-3 h-3 mr-1" />
+                Open on UPS.com
+              </a>
             </div>
-            <a
-              href={`https://www.ups.com/track?trackNums=${encodeURIComponent(data.trackingNumber)}&loc=en_US`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="cyber-btn text-xs shrink-0"
-            >
-              <ExternalLink className="w-3 h-3 mr-1" />
-              Track on UPS.com
-            </a>
+            <div className="rounded border border-cyber-border overflow-hidden bg-white" style={{ height: 500 }}>
+              <iframe
+                src={`https://www.ups.com/track?trackNums=${encodeURIComponent(data.trackingNumber)}&loc=en_US`}
+                className="w-full h-full border-0"
+                title="UPS Tracking"
+                loading="lazy"
+                sandbox="allow-scripts allow-same-origin allow-popups"
+              />
+            </div>
           </div>
         </CyberCard>
       )}
