@@ -25,6 +25,10 @@ import {
   isDeliveredStatus,
   isIssueStatus,
 } from "@/lib/utils";
+import {
+  fetchUPSTracking,
+  submitUPSClientFetch,
+} from "@/lib/ups-client-fetch";
 
 interface ShipmentDetail {
   canDelete?: boolean;
@@ -123,6 +127,7 @@ export function TrackDetailContent({
   const [pendingPrediction, setPendingPrediction] = useState(false);
   const fetchedPredictionRef = useRef(false);
   const [routePrediction, setRoutePrediction] = useState<RoutePrediction | null>(null);
+  const upsFetchRef = useRef(false);
 
   const handleDelete = useCallback(async () => {
     if (!window.confirm("Stop tracking this shipment? This cannot be undone.")) {
@@ -224,6 +229,21 @@ export function TrackDetailContent({
       })
       .catch(() => {})
   }, [shipmentId, loadedShippedAt, loadedStatus]);
+
+  // Client-side UPS fetch: if server scraping returned client_fetch_required
+  useEffect(() => {
+    if (!data || upsFetchRef.current) return;
+    if (data.carrier.slug !== "ups" || data.status !== "client_fetch_required") return;
+
+    upsFetchRef.current = true;
+
+    fetchUPSTracking(data.trackingNumber).then((result) => {
+      if (!result) return;
+      submitUPSClientFetch(data.trackingNumber, data.id, result).then(() => {
+        loadData();
+      });
+    });
+  }, [data, loadData]);
 
   useEventStream({
     onUpdate: (event) => {

@@ -24,16 +24,16 @@ class UPSScraper(BaseCarrierScraper):
 
     async def track(self, tracking_number: str) -> ScrapedShipment:
         try:
-            if not settings.ups_client_id or not settings.ups_client_secret:
-                return self.status_shipment(
-                    tracking_number,
-                    "carrier_setup_required",
-                    "UPS tracking requires UPS Developer OAuth credentials. Set UPS_CLIENT_ID and UPS_CLIENT_SECRET.",
-                )
+            if settings.ups_client_id and settings.ups_client_secret:
+                async with httpx.AsyncClient(timeout=30) as client:
+                    token = await self._access_token_for(client)
+                    return await self._track_with_api(client, tracking_number, token)
 
-            async with httpx.AsyncClient(timeout=30) as client:
-                token = await self._access_token_for(client)
-                return await self._track_with_api(client, tracking_number, token)
+            return self.status_shipment(
+                tracking_number,
+                "client_fetch_required",
+                "UPS tracking requires client-side fetch from the user's browser.",
+            )
 
         except CarrierStatusError as e:
             return self.status_shipment(
@@ -44,6 +44,76 @@ class UPSScraper(BaseCarrierScraper):
             )
         except Exception as e:
             return self.status_shipment(tracking_number, "error", str(e))
+
+    @staticmethod
+    def parse_client_events(tracking_number: str, data: dict) -> ScrapedShipment:
+        shipment_data = data.get("trackResponse", {}).get("shipment", [])
+        shipment = shipment_data[0] if shipment_data else {}
+        packages = shipment.get("package", [])
+        package = packages[0] if packages else {}
+
+        if not package:
+            return ScrapedShipment(
+                tracking_number=tracking_number,
+                carrier_slug="ups",
+                status="pending",
+                events=[],
+            )
+
+        status_data = package.get("currentStatus") or {}
+        raw_status = (
+            status_data.get("description")
+            or status_data.get("simplifiedTextDescription")
+            or package.get("statusDescription")
+            or ""
+        )
+        s = UPSScraper()
+        status = s.normalize_status(raw_status) if raw_status else "pending"
+        service_type = (package.get("service") or {}).get("description")
+
+        events = []
+        for activity in package.get("activity", []):
+            activity_status = activity.get("status") or {}
+            event_status = (
+                activity_status.get("description")
+                or activity_status.get("simplifiedTextDescription")
+                or activity_status.get("type")
+                or activity_status.get("code")
+                or ""
+            )
+            address = activity.get("location", {}).get("address", {})
+            location = ", ".join(
+                filter(
+                    None,
+                    [
+                        address.get("city"),
+                        address.get("stateProvince"),
+                        address.get("postalCode"),
+                        address.get("countryCode") or address.get("country"),
+                    ],
+                )
+            ) or None
+
+            events.append(
+                ScrapedEvent(
+                    status=s.normalize_status(event_status) if event_status else "pending",
+                    location_name=location,
+                    description=event_status or None,
+                    event_time=s._parse_datetime(
+                        activity.get("date") or activity.get("gmtDate") or "",
+                        activity.get("time") or activity.get("gmtTime") or "",
+                    ),
+                    raw_data=activity,
+                )
+            )
+
+        return ScrapedShipment(
+            tracking_number=tracking_number,
+            carrier_slug="ups",
+            status=status,
+            service_type=service_type,
+            events=events,
+        )
 
     async def _access_token_for(self, client: httpx.AsyncClient) -> str:
         if self._access_token and self._token_expires_at > time.time() + 60:
@@ -63,7 +133,7 @@ class UPSScraper(BaseCarrierScraper):
         if resp.status_code in {400, 401, 403}:
             raise CarrierStatusError(
                 "carrier_auth_required",
-                "UPS rejected the configured API credentials. Check UPS_CLIENT_ID and UPS_CLIENT_SECRET.",
+                "UPS rejected the configured API credentials.",
                 self._safe_error_data(resp),
             )
 
@@ -72,7 +142,7 @@ class UPSScraper(BaseCarrierScraper):
         if not access_token:
             raise CarrierStatusError(
                 "carrier_auth_required",
-                "UPS did not return an OAuth access token. Check the UPS app products and credentials.",
+                "UPS did not return an OAuth access token.",
                 data,
             )
 
@@ -110,13 +180,13 @@ class UPSScraper(BaseCarrierScraper):
         if resp.status_code in {401, 403}:
             raise CarrierStatusError(
                 "carrier_auth_required",
-                "UPS rejected the tracking API token. Check the UPS app access and credentials.",
+                "UPS rejected the tracking API token.",
                 self._safe_error_data(resp),
             )
         if resp.status_code in {400, 404}:
             raise CarrierStatusError(
                 "tracking_not_found",
-                self._api_error_message(resp) or "UPS did not find tracking information for this number.",
+                self._api_error_message(resp) or "UPS did not find tracking information.",
                 self._safe_error_data(resp),
             )
 

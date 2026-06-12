@@ -88,6 +88,17 @@ class MLServiceClient {
   async triggerRetrain() {
     return this.request("/train/trigger", { method: "POST" });
   }
+
+  async submitClientFetch(trackingNumber: string, shipmentId: string, rawData: unknown) {
+    return this.request("/scrape/client-fetch", {
+      method: "POST",
+      body: JSON.stringify({
+        tracking_number: trackingNumber,
+        shipment_id: shipmentId,
+        raw_data: rawData,
+      }),
+    });
+  }
 }
 
 export const mlClient = new MLServiceClient();

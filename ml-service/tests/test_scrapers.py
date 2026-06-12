@@ -294,7 +294,7 @@ def test_usps_hash_tracking_is_deterministic():
 
 
 @pytest.mark.asyncio
-async def test_ups_requires_credentials(monkeypatch):
+async def test_ups_returns_client_fetch_without_credentials(monkeypatch):
     from services.config import settings
     from services.scraper.ups import UPSScraper
 
@@ -302,9 +302,8 @@ async def test_ups_requires_credentials(monkeypatch):
     monkeypatch.setattr(settings, "ups_client_secret", None)
     shipment = await UPSScraper().track("1ZB36H830306448836")
 
-    assert shipment.status == "carrier_setup_required"
-    assert shipment.events[0].status == "carrier_setup_required"
-    assert "UPS_CLIENT_ID" in shipment.events[0].description
+    assert shipment.status == "client_fetch_required"
+    assert shipment.events[0].status == "client_fetch_required"
 
 
 def test_ups_parse_track_api_response():
