@@ -25,10 +25,7 @@ import {
   isDeliveredStatus,
   isIssueStatus,
 } from "@/lib/utils";
-import {
-  fetchUPSTracking,
-  submitUPSClientFetch,
-} from "@/lib/ups-client-fetch";
+import { triggerUPSFetch } from "@/lib/ups-client-fetch";
 
 interface ShipmentDetail {
   canDelete?: boolean;
@@ -237,13 +234,15 @@ export function TrackDetailContent({
 
     upsFetchRef.current = true;
 
-    fetchUPSTracking(data.trackingNumber).then((result) => {
-      if (!result) return;
-      submitUPSClientFetch(data.trackingNumber, data.id, result).then(() => {
+    triggerUPSFetch(data.trackingNumber, data.id).then((result) => {
+      if (result && result.events > 0) {
         loadData();
-      });
+      }
     });
   }, [data, loadData]);
+
+  const isUPSClientFetch =
+    data?.carrier?.slug === "ups" && data?.status === "client_fetch_required";
 
   useEventStream({
     onUpdate: (event) => {
@@ -408,6 +407,32 @@ export function TrackDetailContent({
           )}
         </div>
       </div>
+
+      {/* UPS browser fetch banner */}
+      {isUPSClientFetch && (
+        <CyberCard glow="purple" className="mb-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="font-display text-sm font-bold text-cyber-purple mb-1">
+                Browser Fetch Required
+              </p>
+              <p className="font-mono text-xs text-cyber-muted">
+                UPS tracking data is being fetched from your browser. If data
+                does not appear shortly, try the link below.
+              </p>
+            </div>
+            <a
+              href={`https://www.ups.com/track?trackNums=${encodeURIComponent(data.trackingNumber)}&loc=en_US`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="cyber-btn text-xs shrink-0"
+            >
+              <ExternalLink className="w-3 h-3 mr-1" />
+              Track on UPS.com
+            </a>
+          </div>
+        </CyberCard>
+      )}
 
       {/* ETA hero + journey progress */}
       <CyberCard
