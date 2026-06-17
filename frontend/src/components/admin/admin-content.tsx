@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { CyberCard, StatCard } from "@/components/ui/cyber-card";
 import {
   Users,
@@ -158,14 +158,29 @@ export function AdminContent() {
 
   const researchJob = model?.research?.job ?? null;
   const researchRunning = researchJob?.state === "running";
+  const prevRunningRef = useRef(false);
 
   useEffect(() => {
     if (!researchRunning) return;
     const id = window.setInterval(() => {
       loadAll();
-    }, 2500);
+    }, 2000);
     return () => window.clearInterval(id);
   }, [loadAll, researchRunning]);
+
+  useEffect(() => {
+    if (prevRunningRef.current && !researchRunning && researchJob) {
+      const created = researchJob.created ?? 0;
+      const failed = researchJob.failed ?? 0;
+      const total = researchJob.candidates ?? researchJob.total ?? 0;
+      setActionMsg(
+        researchJob.state === "failed"
+          ? `Research failed: ${researchJob.message || "unknown error"}`
+          : `Done: ${created} pattern${created === 1 ? "" : "s"} created, ${failed} failed, ${total} lane${total === 1 ? "" : "s"} processed.`
+      );
+    }
+    prevRunningRef.current = researchRunning;
+  }, [researchRunning, researchJob]);
 
   const runAction = useCallback(
     async (action: AdminAction, extra?: { carrierSlug?: string; originCountry?: string; destCountry?: string }) => {
@@ -628,8 +643,53 @@ export function AdminContent() {
           </p>
         )}
 
-        {actionMsg && (
+        {actionMsg && !researchRunning && (
           <p className="text-xs font-mono text-cyber-yellow mb-3">{actionMsg}</p>
+        )}
+
+        {researchRunning && researchJob && (
+          <div className="mb-4 border border-cyber-purple/40 bg-cyber-purple/5 p-3">
+            <div className="flex items-center gap-2 mb-2">
+              <Loader2 className="h-4 w-4 animate-spin text-cyber-purple" />
+              <span className="font-mono text-sm text-cyber-purple">
+                {researchJob.phase === "researching_lane" && researchJob.current_lane
+                  ? `Researching ${laneLabel(researchJob.current_lane)}`
+                  : researchJob.message || "Working..."}
+              </span>
+            </div>
+            {researchJob.total > 0 && (
+              <>
+                <div className="flex justify-between font-mono text-[11px] text-cyber-muted mb-1">
+                  <span>
+                    {researchJob.current} / {researchJob.total} lanes
+                    {" · "}
+                    <span className="text-cyber-green">{researchJob.created} created</span>
+                    {" · "}
+                    <span className="text-cyber-yellow">{researchJob.skipped} skipped</span>
+                    {researchJob.failed > 0 && (
+                      <>{" · "}<span className="text-cyber-red">{researchJob.failed} failed</span></>
+                    )}
+                  </span>
+                  <span className="text-cyber-text">
+                    {Math.round((researchJob.current / researchJob.total) * 100)}%
+                  </span>
+                </div>
+                <div className="h-2 bg-cyber-border/30 overflow-hidden">
+                  <div
+                    className="h-full bg-cyber-purple transition-all duration-500"
+                    style={{
+                      width: `${Math.min(100, Math.round((researchJob.current / researchJob.total) * 100))}%`,
+                    }}
+                  />
+                </div>
+              </>
+            )}
+            {researchJob.total === 0 && (
+              <p className="font-mono text-xs text-cyber-muted">
+                Scanning active shipments...
+              </p>
+            )}
+          </div>
         )}
 
         <div className="flex flex-wrap gap-2 mb-4">
