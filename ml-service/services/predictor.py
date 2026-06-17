@@ -4,7 +4,7 @@ import pandas as pd
 import uuid
 from datetime import datetime, timedelta
 from database.connection import SessionLocal
-from database.models import Shipment, Prediction, ModelVersion, Carrier
+from database.models import Shipment, ShipmentEvent, Prediction, ModelVersion, Carrier
 from services.config import settings
 from services.knowledge import (
     country_from_region, haversine_km, estimate_hops,
@@ -228,8 +228,6 @@ class ETAPredictor:
             origin = (shipment.origin_name or "unknown").split(",")[-1].strip()
             dest = (shipment.dest_name or "unknown").split(",")[-1].strip()
 
-            # predict() falls back to the knowledge engine when no trained
-            # model is loaded, so don't short-circuit here.
             result = self.predict(
                 carrier_slug=carrier.slug,
                 origin_region=origin,
@@ -244,12 +242,73 @@ class ETAPredictor:
             )
 
             if result:
+                result = self._adjust_for_progress(db, shipment_id, shipment, result)
                 db.add(self._prediction_from_result(shipment_id, result))
                 db.commit()
 
             return result
         finally:
             db.close()
+
+    def _adjust_for_progress(
+        self, db, shipment_id: str, shipment: Shipment, result: dict
+    ) -> dict:
+        """Adjust ETA based on real-time transit progress and overdue state."""
+        now = utcnow()
+        source = result.get("prediction_source", result.get("model_version", ""))
+        median_days = result.get("median_days", 5.0)
+        p90_days = result.get("p90_days", median_days * 1.4)
+
+        predicted = parse_to_naive_utc(result["predicted_delivery"])
+        conf_high = parse_to_naive_utc(result["confidence_high"]) if result.get("confidence_high") else None
+
+        latest_event = (
+            db.query(ShipmentEvent)
+            .filter(ShipmentEvent.shipment_id == shipment_id)
+            .order_by(ShipmentEvent.event_time.desc())
+            .first()
+        )
+
+        if latest_event:
+            ev_status = (latest_event.status or "").lower()
+            ev_desc = (latest_event.description or "").lower()
+
+            if "out_for_delivery" in ev_status or "out for delivery" in ev_desc:
+                result["predicted_delivery"] = (now + timedelta(hours=6)).isoformat()
+                result["confidence_low"] = now.isoformat()
+                result["confidence_high"] = (now + timedelta(hours=12)).isoformat()
+                result["prediction_source"] = source + "+out-for-delivery"
+                return result
+
+            if "arrived_at_facility" in ev_status or "arrived" in ev_desc:
+                if predicted and predicted < now:
+                    uncertainty_days = max(0.5, p90_days - median_days)
+                    grace = max(1.0, uncertainty_days * 0.4)
+                    new_eta = now + timedelta(days=grace)
+                    result["predicted_delivery"] = new_eta.isoformat()
+                    result["confidence_low"] = now.isoformat()
+                    result["confidence_high"] = (new_eta + timedelta(days=grace)).isoformat()
+                    result["confidence_pct"] = min(float(result.get("confidence_pct", 50)), 45.0)
+                    result["prediction_source"] = source + "+overdue"
+                    return result
+
+        if predicted and predicted < now:
+            if conf_high and conf_high > now:
+                result["predicted_delivery"] = conf_high.isoformat()
+                result["confidence_low"] = now.isoformat()
+                result["confidence_pct"] = min(float(result.get("confidence_pct", 50)), 50.0)
+                result["prediction_source"] = source + "+p90-window"
+            else:
+                uncertainty_days = max(0.5, p90_days - median_days)
+                grace = max(1.0, uncertainty_days * 0.5)
+                new_eta = now + timedelta(days=grace)
+                result["predicted_delivery"] = new_eta.isoformat()
+                result["confidence_low"] = now.isoformat()
+                result["confidence_high"] = (new_eta + timedelta(days=grace)).isoformat()
+                result["confidence_pct"] = min(float(result.get("confidence_pct", 50)), 35.0)
+                result["prediction_source"] = source + "+overdue"
+
+        return result
 
     def _prediction_from_result(self, shipment_id: str, result: dict) -> Prediction:
         return Prediction(

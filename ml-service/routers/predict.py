@@ -28,6 +28,22 @@ class RoutePredictionRequest(BaseModel):
 
 @router.post("/eta")
 async def predict_eta(req: ETAPredictionRequest):
+    from database.connection import SessionLocal
+
+    db = SessionLocal()
+    try:
+        shipment = (
+            db.query(Shipment)
+            .filter(Shipment.tracking_number == req.tracking_number)
+            .first()
+        )
+        if shipment:
+            result = predictor.predict_for_shipment(shipment.id)
+            if result:
+                return {"status": "ok", "prediction": result}
+    finally:
+        db.close()
+
     origin = req.origin_region or "unknown"
     dest = req.dest_region or "unknown"
 
