@@ -179,10 +179,16 @@ export function TrackDetailContent({
     load();
   }, [shipmentId]);
 
-  // On-demand prediction: if the DB had none, request one immediately
+  // On-demand prediction: request one if missing OR stale (predicted date in past)
   useEffect(() => {
-    if (!data || fetchedPredictionRef.current) return;
-    if (data.prediction || isDeliveredStatus(data.status)) return;
+    if (!data || isDeliveredStatus(data.status)) return;
+
+    const isStale = data.prediction
+      ? new Date(data.prediction.predictedDelivery).getTime() < Date.now()
+      : true;
+    if (!isStale) return;
+    if (fetchedPredictionRef.current) return;
+
     const region = (name: string | null) =>
       name ? name.split(",").slice(-1)[0].trim() : undefined;
 
@@ -247,6 +253,7 @@ export function TrackDetailContent({
   useEventStream({
     onUpdate: (event) => {
       if (event.shipment_id === shipmentId) {
+        fetchedPredictionRef.current = false;
         loadData();
       }
     },
