@@ -59,34 +59,41 @@ def predict_route(db, shipment: Shipment) -> dict | None:
         dest_lat=_to_float(shipment.dest_lat),
         dest_lng=_to_float(shipment.dest_lng),
     )
-    if not best:
-        return None
 
     start_time = to_naive_utc(shipment.shipped_at or events[0].event_time)
-    future = _extract_future_stops(
-        best["pattern"],
-        best["matched_to"],
-        start_time,
-        current_stops=current_stops,
-        dest_name=shipment.dest_name,
-        dest_lat=_to_float(shipment.dest_lat),
-        dest_lng=_to_float(shipment.dest_lng),
-    )
-    if not future:
-        return None
 
-    return {
-        "carrier_slug": carrier.slug,
-        "origin_country": origin_country,
-        "dest_country": dest_country,
-        "label": best["pattern"].label,
-        "matched_stops": best["matched_to"],
-        "total_pattern_stops": len(best["pattern"].stops),
-        "total_events": len(events),
-        "score": best["score"],
-        "sample_count": best["pattern"].sample_count,
-        "future_stops": future,
-    }
+    if best:
+        future = _extract_future_stops(
+            best["pattern"],
+            best["matched_to"],
+            start_time,
+            current_stops=current_stops,
+            dest_name=shipment.dest_name,
+            dest_lat=_to_float(shipment.dest_lat),
+            dest_lng=_to_float(shipment.dest_lng),
+        )
+        if future:
+            return {
+                "carrier_slug": carrier.slug,
+                "origin_country": origin_country,
+                "dest_country": dest_country,
+                "label": best["pattern"].label,
+                "matched_stops": best["matched_to"],
+                "total_pattern_stops": len(best["pattern"].stops),
+                "total_events": len(events),
+                "score": best["score"],
+                "sample_count": best["pattern"].sample_count,
+                "future_stops": future,
+            }
+
+    return _synthetic_route(
+        db,
+        shipment,
+        events,
+        carrier,
+        origin_country,
+        dest_country,
+    )
 
 
 def _build_current_stops(events):
@@ -321,22 +328,21 @@ def _refine_future_stops(
         if dest_hit:
             dest_lat = dest_hit.lat
             dest_lng = dest_hit.lng
-    latest_distance = _latest_current_distance_to_destination(current_stops, dest_lat, dest_lng)
 
     refined = []
     seen = set()
     for stop in future:
         canon = _canonical(stop.get("location_name"), stop.get("location_lat"), stop.get("location_lng"))
+        status = stop.get("status", "")
+        dedup_key = f"{canon}|{status}"
         if canon and canon == latest_current and canon != dest_canon:
             continue
-        if canon and canon in seen and canon != dest_canon:
+        if dedup_key in seen and canon != dest_canon:
             continue
         if canon:
-            seen.add(canon)
-        if dest_canon and canon != dest_canon and stop.get("status") == "delivered":
+            seen.add(dedup_key)
+        if dest_canon and canon != dest_canon and status == "delivered":
             stop = {**stop, "status": "arrived_at_facility"}
-        if _is_low_progress_intermediate(stop, dest_canon, latest_distance, dest_lat, dest_lng):
-            continue
         refined.append(stop)
 
     if dest_name and dest_canon:
@@ -386,21 +392,130 @@ def _latest_current_distance_to_destination(current_stops, dest_lat, dest_lng) -
 
 
 def _is_low_progress_intermediate(stop, dest_canon, latest_distance, dest_lat, dest_lng) -> bool:
-    """Hide domestic-leg forecast stops that do not meaningfully approach the destination."""
-    if latest_distance is None or latest_distance > 2500:
-        return False
+    """Deprecated: previously hid domestic stops close to destination.
+
+    Now always returns False — we want to show ALL predicted stops so the
+    user sees the full chain (depart → hub → out for delivery → delivered).
+    """
+    return False
+
+
+def _synthetic_route(
+    db, shipment: Shipment, events, carrier: Carrier,
+    origin_country: str, dest_country: str,
+) -> dict | None:
+    """Generate a predicted stop chain when no mined pattern matches.
+
+    Uses the latest event location and destination to build:
+    depart current → arrive regional hub → out for delivery → delivered
+    """
+    from services.knowledge import HUBS, haversine_km
+
+    dest_lat = _to_float(shipment.dest_lat)
+    dest_lng = _to_float(shipment.dest_lng)
+    dest_name = shipment.dest_name or "Destination"
+
     if dest_lat is None or dest_lng is None:
-        return False
+        hit = geocode_resolve(dest_name)
+        if hit:
+            dest_lat, dest_lng = hit.lat, hit.lng
+    if dest_lat is None:
+        return None
 
-    canon = _canonical(stop.get("location_name"), stop.get("location_lat"), stop.get("location_lng"))
-    if dest_canon and canon == dest_canon:
-        return False
+    latest_event = events[-1] if events else None
+    cur_lat = _to_float(latest_event.location_lat if latest_event else None)
+    cur_lng = _to_float(latest_event.location_lng if latest_event else None)
+    cur_name = latest_event.location_name if latest_event else shipment.origin_name
 
-    lat = _to_float(stop.get("location_lat"))
-    lng = _to_float(stop.get("location_lng"))
-    if lat is None or lng is None:
-        return False
+    remaining_km = 0.0
+    if cur_lat and cur_lng:
+        remaining_km = haversine_km(cur_lat, cur_lng, dest_lat, dest_lng)
 
-    stop_distance = haversine_km(lat, lng, dest_lat, dest_lng)
-    required_progress = max(100.0, latest_distance * 0.15)
-    return stop_distance > latest_distance - required_progress
+    now = utcnow()
+
+    regional_hub_name = None
+    regional_hub_lat = dest_lat
+    regional_hub_lng = dest_lng
+    nearest_dist = float("inf")
+    for hub in HUBS:
+        if hub.country != dest_country:
+            continue
+        d = haversine_km(hub.lat, hub.lng, dest_lat, dest_lng)
+        if d < nearest_dist and d < 500:
+            nearest_dist = d
+            regional_hub_name = hub.name
+            regional_hub_lat = hub.lat
+            regional_hub_lng = hub.lng
+
+    if regional_hub_name is None:
+        regional_hub_name = dest_name.split(",")[0].strip() if dest_name else "Regional Hub"
+
+    base_hours = max(6, remaining_km / 80.0)
+
+    future_stops = []
+
+    if latest_event and cur_lat and cur_lng:
+        future_stops.append({
+            "stop_order": 0,
+            "location_name": cur_name or "Current Location",
+            "location_lat": cur_lat,
+            "location_lng": cur_lng,
+            "status": "departed_facility",
+            "frequency_pct": 90,
+            "eta": (now + timedelta(hours=2)).replace(tzinfo=timezone.utc).isoformat(),
+            "median_days_from_start": 0,
+            "p10_days": 0,
+            "p90_days": 1,
+        })
+
+    future_stops.append({
+        "stop_order": 1,
+        "location_name": regional_hub_name,
+        "location_lat": regional_hub_lat,
+        "location_lng": regional_hub_lng,
+        "status": "arrived_at_facility",
+        "frequency_pct": 85,
+        "eta": (now + timedelta(hours=base_hours)).replace(tzinfo=timezone.utc).isoformat(),
+        "median_days_from_start": round(base_hours / 24, 1),
+        "p10_days": round(base_hours / 24 * 0.7, 1),
+        "p90_days": round(base_hours / 24 * 1.5, 1),
+    })
+
+    future_stops.append({
+        "stop_order": 2,
+        "location_name": dest_name,
+        "location_lat": dest_lat,
+        "location_lng": dest_lng,
+        "status": "out_for_delivery",
+        "frequency_pct": 90,
+        "eta": (now + timedelta(hours=base_hours + 12)).replace(tzinfo=timezone.utc).isoformat(),
+        "median_days_from_start": round((base_hours + 12) / 24, 1),
+        "p10_days": round((base_hours + 6) / 24, 1),
+        "p90_days": round((base_hours + 24) / 24, 1),
+    })
+
+    future_stops.append({
+        "stop_order": 3,
+        "location_name": dest_name,
+        "location_lat": dest_lat,
+        "location_lng": dest_lng,
+        "status": "delivered",
+        "frequency_pct": 100,
+        "eta": (now + timedelta(hours=base_hours + 18)).replace(tzinfo=timezone.utc).isoformat(),
+        "median_days_from_start": round((base_hours + 18) / 24, 1),
+        "p10_days": round((base_hours + 12) / 24, 1),
+        "p90_days": round((base_hours + 48) / 24, 1),
+    })
+
+    return {
+        "carrier_slug": carrier.slug,
+        "origin_country": origin_country,
+        "dest_country": dest_country,
+        "label": "Synthetic forecast",
+        "matched_stops": len(events),
+        "total_pattern_stops": len(future_stops),
+        "total_events": len(events),
+        "score": 0.3,
+        "sample_count": 0,
+        "future_stops": future_stops,
+    }

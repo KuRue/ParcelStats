@@ -4,6 +4,7 @@ import logging
 import uuid
 from collections import deque
 from datetime import datetime
+from decimal import Decimal
 from typing import Optional
 import redis
 from services.queue import JobQueue
@@ -16,6 +17,69 @@ from database.models import Shipment, ShipmentEvent, Carrier, ScrapeJob
 from services.timeutil import utcnow
 
 logger = logging.getLogger("parcelstats.worker")
+
+
+def _to_float(value) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, Decimal):
+        return float(value)
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _contextual_geocode(
+    location_name: str,
+    description: str,
+    status: str,
+    dest_lat: float | None,
+    dest_lng: float | None,
+) -> tuple[float, float] | None:
+    """When a location resolves to a bare country (e.g. 'US'), pick a better
+    coordinate using event context: ports of entry for customs, nearest hub
+    to destination for arrivals, etc.
+    """
+    from services.knowledge import HUBS, haversine_km
+
+    desc_lower = (description or "").lower()
+    status_lower = (status or "").lower()
+
+    is_customs = any(w in desc_lower or w in status_lower for w in ("custom", "clearance", "import"))
+    is_arrival = any(w in desc_lower or w in status_lower for w in ("arrived", "arrival", "destination country"))
+
+    if not (is_customs or is_arrival):
+        return None
+
+    country = None
+    for part in location_name.replace(",", " ").split():
+        from services.geocode import _country_code
+        cc = _country_code(part)
+        if cc:
+            country = cc
+            break
+    if not country:
+        return None
+
+    if dest_lat is None or dest_lng is None:
+        if HUBS:
+            for hub in HUBS:
+                if hub.country == country:
+                    return (hub.lat, hub.lng)
+        return None
+
+    nearest = None
+    nearest_d = float("inf")
+    for hub in HUBS:
+        if hub.country != country:
+            continue
+        d = haversine_km(hub.lat, hub.lng, dest_lat, dest_lng)
+        if d < nearest_d:
+            nearest_d = d
+            nearest = (hub.lat, hub.lng)
+
+    return nearest
 
 POLL_INTERVAL = 5
 BATCH_SIZE = 5
@@ -232,6 +296,17 @@ class ScrapeWorker:
                         if hit:
                             event_lat = hit.lat
                             event_lng = hit.lng
+
+                        if hit and hit.source == "country":
+                            better = _contextual_geocode(
+                                event.location_name,
+                                event.description or "",
+                                event.status or "",
+                                _to_float(shipment.dest_lat),
+                                _to_float(shipment.dest_lng),
+                            )
+                            if better:
+                                event_lat, event_lng = better
 
                     existing = None
                     if event.event_time:
