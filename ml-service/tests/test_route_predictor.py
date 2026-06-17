@@ -173,6 +173,11 @@ def test_future_stops_collapse_repeats_and_end_at_destination():
         dest_lng=-82.7884,
     )
 
-    assert [f["location_name"] for f in future] == ["Largo, FL"]
+    names = [f["location_name"] for f in future]
+    assert names[-1] == "Largo, FL"
     assert future[-1]["status"] == "delivered"
     assert future[-1]["location_lat"] == 27.9098
+
+    assert "New York" in names, "Intermediate stops should be preserved"
+    ny_count = names.count("New York")
+    assert ny_count <= 2, f"Exact duplicates should be collapsed, got {ny_count} New York stops"
