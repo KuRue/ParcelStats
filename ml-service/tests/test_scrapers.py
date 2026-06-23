@@ -187,6 +187,7 @@ def _fake_17track_client(payload):
     class FakeResponse:
         status_code = 200
         text = "ok"
+        headers = {"content-type": "application/json"}
 
         def json(self):
             return payload
