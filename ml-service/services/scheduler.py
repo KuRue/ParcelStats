@@ -52,6 +52,7 @@ class PollScheduler:
         self._last_mining: Optional[datetime] = None
         self._last_research: Optional[datetime] = None
         self._last_flight_cache: Optional[datetime] = None
+        self._last_prune: Optional[datetime] = None
 
     async def start(self):
         if self.running:
@@ -93,6 +94,7 @@ class PollScheduler:
             self._geocode_backfill(db)
             self._mine_patterns_if_due(db)
             self._research_missing_if_due()
+            self._prune_old_predictions_if_due(db)
             await self._update_flight_cache_if_due()
 
             active_shipments = (
@@ -283,6 +285,30 @@ class PollScheduler:
             await update_flight_cache()
         except Exception as e:
             logger.debug(f"Flight cache update failed: {e}")
+
+    def _prune_old_predictions_if_due(self, db):
+        """Delete predictions older than 30 days for delivered shipments."""
+        now = utcnow()
+        if self._last_prune and (now - self._last_prune).total_seconds() < 86400:
+            return
+        self._last_prune = now
+        try:
+            from database.models import Prediction
+            cutoff = now - timedelta(days=30)
+            deleted = (
+                db.query(Prediction)
+                .join(Shipment, Prediction.shipment_id == Shipment.id)
+                .filter(
+                    Shipment.delivered_at.isnot(None),
+                    Prediction.created_at < cutoff,
+                )
+                .delete(synchronize_session=False)
+            )
+            db.commit()
+            if deleted:
+                logger.info(f"Pruned {deleted} old predictions")
+        except Exception as e:
+            logger.warning(f"Prediction prune failed: {e}")
 
     def _mine_patterns_if_due(self, db):
         """Run route pattern mining every 6 hours."""

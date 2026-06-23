@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useSession, signOut } from "next-auth/react";
-import { Package, BarChart3, LogOut, Menu, X, Shield } from "lucide-react";
+import { Package, BarChart3, LogOut, Menu, X, Shield, Plane, Settings } from "lucide-react";
 import { useState } from "react";
 
 export function Navbar() {
@@ -34,6 +34,20 @@ export function Navbar() {
               >
                 <BarChart3 className="w-4 h-4 inline mr-1" />
                 Stats
+              </Link>
+              <Link
+                href="/carriers"
+                className="text-sm text-cyber-muted hover:text-cyber-cyan transition-colors font-mono"
+              >
+                <Plane className="w-4 h-4 inline mr-1" />
+                Carriers
+              </Link>
+              <Link
+                href="/settings"
+                className="text-sm text-cyber-muted hover:text-cyber-cyan transition-colors font-mono"
+              >
+                <Settings className="w-4 h-4 inline mr-1" />
+                Settings
               </Link>
               {session.user?.isAdmin && (
                 <Link
@@ -92,6 +106,20 @@ export function Navbar() {
                   onClick={() => setMobileOpen(false)}
                 >
                   Stats
+                </Link>
+                <Link
+                  href="/carriers"
+                  className="text-sm text-cyber-muted hover:text-cyber-cyan font-mono"
+                  onClick={() => setMobileOpen(false)}
+                >
+                  Carriers
+                </Link>
+                <Link
+                  href="/settings"
+                  className="text-sm text-cyber-muted hover:text-cyber-cyan font-mono"
+                  onClick={() => setMobileOpen(false)}
+                >
+                  Settings
                 </Link>
                 {session.user?.isAdmin && (
                   <Link

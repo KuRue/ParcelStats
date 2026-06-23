@@ -23,10 +23,21 @@ export interface GlobeShipment {
   futureStops?: GlobeFutureStop[];
 }
 
+export interface GlobeFlight {
+  icao24: string;
+  callsign: string;
+  latitude: number;
+  longitude: number;
+  altitude: number | null;
+  velocity: number | null;
+  heading: number | null;
+}
+
 interface ParcelGlobeProps {
   shipments: GlobeShipment[];
   selectedId: string | null;
   onSelect: (id: string | null) => void;
+  flights?: GlobeFlight[];
 }
 
 interface GlobeFutureStop {
@@ -79,7 +90,7 @@ interface Point {
   shipmentId: string;
   lat: number;
   lng: number;
-  kind: "current" | "origin" | "dest" | "predicted";
+  kind: "current" | "origin" | "dest" | "predicted" | "flight";
   color: string;
 }
 
@@ -168,7 +179,7 @@ function forecastStopsOf(s: GlobeShipment) {
     );
 }
 
-export default function ParcelGlobe({ shipments, selectedId, onSelect }: ParcelGlobeProps) {
+export default function ParcelGlobe({ shipments, selectedId, onSelect, flights }: ParcelGlobeProps) {
   const globeRef = useRef<GlobeMethods | undefined>(undefined);
   const containerRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
@@ -349,8 +360,21 @@ export default function ParcelGlobe({ shipments, selectedId, onSelect }: ParcelG
         }
       }
     }
+
+    if (flights && flights.length > 0) {
+      for (const f of flights) {
+        points.push({
+          shipmentId: `flight-${f.icao24}`,
+          lat: f.latitude,
+          lng: f.longitude,
+          kind: "flight" as const,
+          color: COLORS.pending,
+        });
+      }
+    }
+
     return { arcs, points, rings, labels };
-  }, [shipments]);
+  }, [shipments, flights]);
 
   const visibleLabels = useMemo(() => {
     if (selectedId) {

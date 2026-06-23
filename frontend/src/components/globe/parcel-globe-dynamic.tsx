@@ -14,6 +14,8 @@ const ParcelGlobe = dynamic(() => import("./parcel-globe"), {
 
 export default ParcelGlobe;
 
+export type { GlobeShipment, GlobeFlight } from "./parcel-globe";
+
 export function webglAvailable(): boolean {
   if (typeof window === "undefined") return true;
   try {

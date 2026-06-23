@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
-import { Package, BarChart3, LogOut } from "lucide-react";
+import { Package, BarChart3, LogOut, Plane, Settings } from "lucide-react";
 
 export function MobileNav() {
   const pathname = usePathname();
@@ -14,6 +14,8 @@ export function MobileNav() {
   const navItems = [
     { href: "/dashboard", label: "Dashboard", icon: Package },
     { href: "/stats", label: "Stats", icon: BarChart3 },
+    { href: "/carriers", label: "Carriers", icon: Plane },
+    { href: "/settings", label: "Settings", icon: Settings },
   ];
 
   return (

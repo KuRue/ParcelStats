@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { useEventStream } from "@/hooks/use-event-stream";
 import ParcelGlobe, { webglAvailable } from "@/components/globe/parcel-globe-dynamic";
+import type { GlobeFlight } from "@/components/globe/parcel-globe-dynamic";
 import GlobalMap from "@/components/maps/global-map-dynamic";
 import { formatRegionalDateHour, isDeliveredStatus, isIssueStatus } from "@/lib/utils";
 import {
@@ -176,11 +177,26 @@ export function DashboardContent({ userId }: { userId: string }) {
   const [selectedShipment, setSelectedShipment] = useState<string | null>(null);
   const [hasWebgl, setHasWebgl] = useState(true);
   const [routeForecasts, setRouteForecasts] = useState<Record<string, FutureStop[]>>({});
+  const [globeFlights, setGlobeFlights] = useState<GlobeFlight[]>([]);
   const routeForecastsRef = useRef<Record<string, FutureStop[]>>({});
   const routeForecastKeysRef = useRef<Record<string, string>>({});
 
   useEffect(() => {
     setHasWebgl(webglAvailable());
+  }, []);
+
+  useEffect(() => {
+    const loadFlights = () => {
+      fetch("/api/flights/cached")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (data?.flights) setGlobeFlights(data.flights);
+        })
+        .catch(() => {});
+    };
+    loadFlights();
+    const id = window.setInterval(loadFlights, 60000);
+    return () => window.clearInterval(id);
   }, []);
 
   const handleStatusChange = useCallback((shipmentId: string, newStatus: string) => {
@@ -441,6 +457,7 @@ export function DashboardContent({ userId }: { userId: string }) {
             onSelect={(id) =>
               setSelectedShipment(id === selectedShipment ? null : id)
             }
+            flights={globeFlights}
           />
         ) : (
           <div className="absolute inset-0">
