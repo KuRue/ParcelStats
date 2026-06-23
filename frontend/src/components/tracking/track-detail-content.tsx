@@ -37,6 +37,8 @@ interface FlightPosition {
   heading: number | null;
   on_ground: boolean;
   origin_country: string;
+  distance_to_origin_km?: number;
+  distance_to_dest_km?: number;
 }
 
 interface ShipmentDetail {
@@ -673,6 +675,41 @@ export function TrackDetailContent({
                           : "ML"}
                     </span>
                   )}
+                </p>
+              </div>
+            </CyberCard>
+          )}
+
+          {isInternationalTransit && flights.length > 0 && (
+            <CyberCard glow="purple" terminal title="Live Cargo Flights">
+              <div className="space-y-2">
+                {flights.slice(0, 5).map((f) => {
+                  const altKm = f.altitude ? (f.altitude / 1000).toFixed(1) : "?";
+                  const speedKmh = f.velocity ? Math.round(f.velocity * 3.6) : "?";
+                  return (
+                    <div
+                      key={f.icao24}
+                      className="flex items-center justify-between border-b border-cyber-border/30 pb-2 last:border-0 last:pb-0"
+                    >
+                      <div>
+                        <p className="font-mono text-sm text-cyber-yellow font-bold">
+                          {f.callsign}
+                        </p>
+                        <p className="font-mono text-[10px] text-cyber-muted">
+                          {f.on_ground ? "On ground" : `${altKm} km · ${speedKmh} km/h`}
+                          {f.origin_country ? ` · ${f.origin_country}` : ""}
+                        </p>
+                      </div>
+                      {f.distance_to_dest_km != null && (
+                        <p className="font-mono text-[10px] text-cyber-cyan shrink-0">
+                          {f.distance_to_dest_km} km to dest
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+                <p className="font-mono text-[10px] text-cyber-muted pt-1">
+                  Data from OpenSky Network · updates every 60s
                 </p>
               </div>
             </CyberCard>

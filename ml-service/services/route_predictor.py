@@ -379,18 +379,6 @@ def _refine_future_stops(
     return refined
 
 
-def _latest_current_distance_to_destination(current_stops, dest_lat, dest_lng) -> float | None:
-    if not current_stops or dest_lat is None or dest_lng is None:
-        return None
-
-    latest = current_stops[-1]
-    lat = _to_float(latest.get("location_lat"))
-    lng = _to_float(latest.get("location_lng"))
-    if lat is None or lng is None:
-        return None
-    return haversine_km(lat, lng, dest_lat, dest_lng)
-
-
 def _is_low_progress_intermediate(stop, dest_canon, latest_distance, dest_lat, dest_lng) -> bool:
     """Deprecated: previously hid domestic stops close to destination.
 
