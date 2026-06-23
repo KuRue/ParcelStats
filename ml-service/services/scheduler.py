@@ -51,6 +51,7 @@ class PollScheduler:
         self._ungeocodable: set[str] = set()
         self._last_mining: Optional[datetime] = None
         self._last_research: Optional[datetime] = None
+        self._last_flight_cache: Optional[datetime] = None
 
     async def start(self):
         if self.running:
@@ -92,6 +93,7 @@ class PollScheduler:
             self._geocode_backfill(db)
             self._mine_patterns_if_due(db)
             self._research_missing_if_due()
+            await self._update_flight_cache_if_due()
 
             active_shipments = (
                 db.query(Shipment)
@@ -270,6 +272,18 @@ class PollScheduler:
             return getattr(settings, setting_name, settings.poll_interval_others)
         return settings.poll_interval_others
 
+    async def _update_flight_cache_if_due(self):
+        """Refresh cached cargo flight positions every 60 seconds."""
+        now = utcnow()
+        if self._last_flight_cache and (now - self._last_flight_cache).total_seconds() < 60:
+            return
+        self._last_flight_cache = now
+        try:
+            from services.flights import update_flight_cache
+            await update_flight_cache()
+        except Exception as e:
+            logger.debug(f"Flight cache update failed: {e}")
+
     def _mine_patterns_if_due(self, db):
         """Run route pattern mining every 6 hours."""
         now = utcnow()
@@ -301,6 +315,7 @@ class PollScheduler:
             "polls_done": self._polls_done,
             "jobs_enqueued": self._jobs_enqueued,
             "last_poll": self._last_poll.isoformat() if self._last_poll else None,
+            "last_flight_cache": self._last_flight_cache.isoformat() if self._last_flight_cache else None,
             "started_at": self._started_at.isoformat() if self._started_at else None,
             "uptime_seconds": (
                 (utcnow() - self._started_at).total_seconds()

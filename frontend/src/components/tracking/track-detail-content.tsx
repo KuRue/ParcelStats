@@ -27,6 +27,18 @@ import {
 } from "@/lib/utils";
 import { triggerUPSFetch } from "@/lib/ups-client-fetch";
 
+interface FlightPosition {
+  icao24: string;
+  callsign: string;
+  latitude: number;
+  longitude: number;
+  altitude: number | null;
+  velocity: number | null;
+  heading: number | null;
+  on_ground: boolean;
+  origin_country: string;
+}
+
 interface ShipmentDetail {
   canDelete?: boolean;
   id: string;
@@ -125,6 +137,7 @@ export function TrackDetailContent({
   const fetchedPredictionRef = useRef(false);
   const [routePrediction, setRoutePrediction] = useState<RoutePrediction | null>(null);
   const upsFetchRef = useRef(false);
+  const [flights, setFlights] = useState<FlightPosition[]>([]);
 
   const handleDelete = useCallback(async () => {
     if (!window.confirm("Stop tracking this shipment? This cannot be undone.")) {
@@ -249,6 +262,45 @@ export function TrackDetailContent({
 
   const isUPSClientFetch =
     data?.carrier?.slug === "ups" && data?.status === "client_fetch_required";
+
+  const isInternationalTransit = (() => {
+    if (!data || !data.originLat || !data.destLat) return false;
+    const oLng = parseFloat(data.originLng || "");
+    const dLng = parseFloat(data.destLng || "");
+    if (isNaN(oLng) || isNaN(dLng)) return false;
+    const originCountry = data.originName?.split(",").slice(-1)[0].trim();
+    const destCountry = data.destName?.split(",").slice(-1)[0].trim();
+    return originCountry !== destCountry;
+  })();
+
+  useEffect(() => {
+    if (!data || !isInternationalTransit || isDeliveredStatus(data.status)) return;
+
+    const oLat = parseFloat(data.originLat || "");
+    const oLng = parseFloat(data.originLng || "");
+    const dLat = parseFloat(data.destLat || "");
+    const dLng = parseFloat(data.destLng || "");
+    if (isNaN(oLat) || isNaN(oLng) || isNaN(dLat) || isNaN(dLng)) return;
+
+    let active = true;
+    const loadFlights = () => {
+      fetch(`/api/flights?origin_lat=${oLat}&origin_lng=${oLng}&dest_lat=${dLat}&dest_lng=${dLng}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((result) => {
+          if (active && result?.flights) {
+            setFlights(result.flights);
+          }
+        })
+        .catch(() => {});
+    };
+
+    loadFlights();
+    const id = window.setInterval(loadFlights, 60000);
+    return () => {
+      active = false;
+      window.clearInterval(id);
+    };
+  }, [data, isInternationalTransit]);
 
   useEventStream({
     onUpdate: (event) => {
@@ -561,6 +613,7 @@ export function TrackDetailContent({
               destName={data.destName}
               status={data.status}
               futureStops={futureStops}
+              flights={isInternationalTransit ? flights : []}
             />
           </CyberCard>
 

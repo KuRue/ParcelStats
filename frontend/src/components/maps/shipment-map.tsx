@@ -31,6 +31,20 @@ interface FutureStop {
   eta: string;
 }
 
+interface FlightPosition {
+  icao24: string;
+  callsign: string;
+  latitude: number;
+  longitude: number;
+  altitude: number | null;
+  velocity: number | null;
+  heading: number | null;
+  on_ground: boolean;
+  origin_country: string;
+  distance_to_origin_km?: number;
+  distance_to_dest_km?: number;
+}
+
 interface ShipmentRouteMapProps {
   events: MapEvent[];
   originLat?: number | null;
@@ -41,6 +55,7 @@ interface ShipmentRouteMapProps {
   destName?: string | null;
   status: string;
   futureStops?: FutureStop[];
+  flights?: FlightPosition[];
 }
 
 function createIcon(color: string, size: number = 12) {
@@ -122,6 +137,24 @@ function createEndpointIcon(label: string, color: string) {
   });
 }
 
+function createPlaneIcon(heading: number, callsign: string) {
+  return L.divIcon({
+    className: "custom-marker",
+    html: `<div style="
+      transform:rotate(${heading}deg);
+      width:28px;height:28px;
+      display:flex;align-items:center;justify-content:center;
+    ">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style="filter:drop-shadow(0 0 4px #ffdd0080);">
+        <path d="M21 16v-2l-8-5V3.5C13 2.67 12.33 2 11.5 2S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"
+          fill="#ffdd00" stroke="#1a1f2e" stroke-width="0.5"/>
+      </svg>
+    </div>`,
+    iconSize: [28, 28],
+    iconAnchor: [14, 14],
+  });
+}
+
 function getStatusColor(status: string): string {
   const s = normalizedStatus(status);
   if (isDeliveredStatus(status)) return "#39ff14";
@@ -166,6 +199,7 @@ export function ShipmentRouteMap({
   destName,
   status,
   futureStops,
+  flights,
 }: ShipmentRouteMapProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
@@ -421,6 +455,31 @@ export function ShipmentRouteMap({
       points.push(destPoint);
     }
 
+    if (flights && flights.length > 0 && originLat != null && originLng != null) {
+      flights.forEach((flight) => {
+        const flightPoint: LatLngTuple = [
+          flight.latitude,
+          normalizeLongitude(flight.longitude),
+        ];
+        const altKm = flight.altitude ? (flight.altitude / 1000).toFixed(1) : "?";
+        const speedKmh = flight.velocity ? Math.round(flight.velocity * 3.6) : "?";
+        const marker = L.marker(flightPoint, {
+          icon: createPlaneIcon(flight.heading ?? 0, flight.callsign),
+        }).addTo(map);
+        marker.bindPopup(
+          `<div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#e0e6f0;background:#1a1f2e;padding:10px;border:1px solid #2a3040;border-radius:6px;min-width:160px;">
+            <div style="color:#ffdd00;font-weight:bold;margin-bottom:4px;font-size:12px;">${flight.callsign}</div>
+            <div style="color:#7a8599;">${flight.on_ground ? "On ground" : "In flight"}</div>
+            ${flight.altitude ? `<div style="color:#7a8599;">Alt: ${altKm} km</div>` : ""}
+            ${flight.velocity ? `<div style="color:#7a8599;">Speed: ${speedKmh} km/h</div>` : ""}
+            ${flight.origin_country ? `<div style="color:#7a8599;">From: ${flight.origin_country}</div>` : ""}
+          </div>`,
+          { className: "cyber-popup" }
+        );
+        points.push(flightPoint);
+      });
+    }
+
     if (points.length > 0) {
       const bounds = L.latLngBounds(points);
       map.fitBounds(bounds, { padding: [30, 30], maxZoom: 10 });
@@ -428,7 +487,7 @@ export function ShipmentRouteMap({
         map.setMaxBounds(bounds.pad(0.3));
       }
     }
-  }, [events, originLat, originLng, originName, destLat, destLng, destName, status, futureStops]);
+  }, [events, originLat, originLng, originName, destLat, destLng, destName, status, futureStops, flights]);
 
   return (
     <div className="relative">
@@ -450,6 +509,12 @@ export function ShipmentRouteMap({
           <div className="w-2 h-2 rounded-full bg-cyber-green" />
           <span className="text-[9px] text-cyber-muted font-mono">Dest</span>
         </div>
+        {flights && flights.length > 0 && (
+          <div className="flex items-center gap-1 bg-cyber-bg/80 backdrop-blur-sm border border-cyber-border rounded px-2 py-1">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="#ffdd00"><path d="M21 16v-2l-8-5V3.5C13 2.67 12.33 2 11.5 2S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/></svg>
+            <span className="text-[9px] text-cyber-muted font-mono">{flights.length} Cargo Flight{flights.length === 1 ? "" : "s"}</span>
+          </div>
+        )}
       </div>
     </div>
   );

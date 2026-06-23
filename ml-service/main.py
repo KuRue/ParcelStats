@@ -2,7 +2,7 @@ import logging
 from contextlib import asynccontextmanager
 import sqlalchemy as sa
 from fastapi import Depends, FastAPI
-from routers import predict, scrape, train
+from routers import predict, scrape, train, flights
 from services.security import require_internal_api_key
 from services.worker import get_worker
 from services.scheduler import scheduler
@@ -98,6 +98,7 @@ auth = [Depends(require_internal_api_key)]
 app.include_router(predict.router, prefix="/predict", tags=["predictions"], dependencies=auth)
 app.include_router(scrape.router, prefix="/scrape", tags=["scraping"], dependencies=auth)
 app.include_router(train.router, prefix="/train", tags=["training"], dependencies=auth)
+app.include_router(flights.router, tags=["flights"], dependencies=auth)
 
 
 @app.get("/health")
